@@ -27,6 +27,7 @@
   </style>
 </head>
 <body>
+  <!-- Registration UI -->
   <div id="registerSection">
     <form id="registerForm">
       <label>
@@ -37,11 +38,17 @@
     </form>
     <div id="registerStatus"></div>
   </div>
+  <!-- Lobby: Card selection -->
   <div id="page1" class="hidden">
+    <div>
+      <span id="userLabel"></span>
+      <span id="balanceLabel"></span>
+    </div>
     <div class="grid" id="number-grid"></div>
     <div class="bingo-card" id="bingo-container"></div>
     <div id="welcome-message"></div>
   </div>
+  <!-- Game UI -->
   <div id="page2" class="hidden">
     <div class="info-bar">
       <div id="called-count">Called: 0</div>
@@ -68,7 +75,6 @@
     let lockedSeeds = [];
     let currentSeed = null;
     let gameCard = null;
-    let winnerInfo = null;
 
     // --- Registration & Auto-login ---
     function detectUser() {
@@ -82,15 +88,16 @@
     }
     detectUser();
 
-    function showGameUI() {
+    function showLobby() {
       document.getElementById('registerSection').classList.add('hidden');
       document.getElementById('page1').classList.remove('hidden');
+      document.getElementById('userLabel').textContent = `👤 ${telegramUsername}`;
       updateBalanceDisplay();
       highlightLockedSeeds();
     }
 
     if (telegramUsername && telegramId) {
-      showGameUI();
+      showLobby();
     } else {
       document.getElementById('registerForm').onsubmit = function(e) {
         e.preventDefault();
@@ -98,7 +105,7 @@
         telegramId = "manual_" + Math.floor(Math.random() * 1e9);
         localStorage.setItem("bingoUsername", telegramUsername);
         localStorage.setItem("bingoId", telegramId);
-        showGameUI();
+        showLobby();
       };
     }
 
@@ -120,6 +127,7 @@
     }
 
     function updateBalanceDisplay() {
+      document.getElementById('balanceLabel').textContent = ` | 💰 Balance: ${playerBalance}`;
       document.getElementById('balance-display').textContent = `💰 Balance: ${playerBalance}`;
     }
 
@@ -258,7 +266,6 @@
       document.getElementById('game-message').textContent = '';
       manuallyMarked.clear();
       gameCard = null;
-      winnerInfo = null;
       socket.emit('endGame');
     }
 
@@ -317,14 +324,6 @@
       return '';
     }
 
-    socket.on('countdown', (seconds) => {
-      // Optionally display countdown
-    });
-
-    socket.on('gameStarted', (data) => {
-      // Optionally display game started
-    });
-
     socket.on('winner', (data) => {
       document.getElementById('game-message').textContent = `🎉 ${data.username} got Bingo! 🏆 Won: ${data.winPoint}`;
       setTimeout(() => {
@@ -332,11 +331,8 @@
         document.getElementById('page1').classList.remove('hidden');
         document.getElementById('bingo-container').innerHTML = '';
         document.getElementById('game-message').textContent = '';
-        winnerInfo = null;
       }, 15000);
     });
-
-    socket.on('stopCalling', () => {});
 
     socket.on('blocked', (reason) => {
       document.getElementById('game-message').textContent = reason;
