@@ -10,6 +10,7 @@
     .hidden { display: none; }
     .grid { display: grid; grid-template-columns: repeat(10, 24px); gap: 3px; margin-top: 10px; }
     .grid button { width: 24px; height: 24px; font-size: 10px; cursor: pointer; }
+    .grid button.locked { background: red; color: white; }
     .bingo-card table, .mini-table { border-collapse: collapse; margin-bottom: 10px; }
     .bingo-card td, .mini-table td { background-color: white; color: blue; border: 1px solid #FFC0CB; font-size: 12px; text-align: center; vertical-align: middle; width: 28px; height: 28px; cursor: pointer; transition: background 0.3s; }
     .bingo-card .free { background-color: #ccc; color: yellow; cursor: default; }
@@ -18,7 +19,7 @@
     .mini-table th { height: 20px; width: 20px; text-align: center; font-size: 12px; }
     .info-bar { display: flex; gap: 10px; padding: 10px; background-color: #e6f7ff; border-radius: 10px; margin-bottom: 1px; font-size: 10px; font-weight: bold; flex-wrap: wrap; }
     .info-bar div { padding: 5px 7px; border-radius: 5px; background-color: white; }
-    .ball-container { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 10px; }
+    .ball-container { display: flex; flex-direction: row-reverse; flex-wrap: wrap; gap: 4px; margin-top: 10px; justify-content: center; }
     .ball { width: 28px; height: 28px; border-radius: 50%; color: #fff; font-weight: bold; display: flex; align-items: center; justify-content: center; font-size: 12px; margin: 1px; transition: background 0.5s; }
     .ball.B { background: orange; } .ball.I { background: green; }
     .ball.N { background: blue; } .ball.G { background: red; } .ball.O { background: purple; }
@@ -26,6 +27,9 @@
     .buttons { display: flex; gap: 10px; margin-top: 10px; justify-content: center; }
     .buttons button { padding: 6px 12px; font-size: 12px; cursor: pointer; }
     #game-message { margin-top: 10px; font-weight: bold; }
+    #winner-card-display { margin-top: 15px; text-align: center; }
+    #winner-card-display .bingo-card { margin: 0 auto; }
+    #winner-section { margin-top: 16px; }
     #welcome-message { margin-top: 10px; color: green; font-weight: bold; }
     .layout-flex { display: flex; gap: 20px; align-items: flex-start; }
     .mini-table-container { margin-right: 20px; }
@@ -33,7 +37,6 @@
   </style>
 </head>
 <body>
-  <!-- Registration UI -->
   <div id="registerSection">
     <form id="registerForm">
       <label>
@@ -44,7 +47,6 @@
     </form>
     <div id="registerStatus"></div>
   </div>
-  <!-- Lobby: Card selection -->
   <div id="page1" class="hidden">
     <div>
       <span id="userLabel"></span>
@@ -54,7 +56,6 @@
     <div class="bingo-card" id="bingo-container"></div>
     <div id="welcome-message"></div>
   </div>
-  <!-- Game UI -->
   <div id="page2" class="hidden">
     <div id="countdown-bar"></div>
     <div class="info-bar">
@@ -75,6 +76,7 @@
           <button onclick="checkBingo()">Bingo!</button>
           <button onclick="endGame()">End Game</button>
         </div>
+        <div id="winner-section"></div>
       </div>
     </div>
     <div id="game-message"></div>
@@ -91,8 +93,10 @@
     let gameCard = null;
     let lastBalls = [];
     let winnerTimeout = null;
+    let winnerCard = null;
+    let playAgainTimeout = null;
 
-    // --- Registration & Auto-login ---
+    // Registration & Auto-login
     function detectUser() {
       if (window.Telegram && Telegram.WebApp && Telegram.WebApp.initDataUnsafe?.user) {
         telegramUsername = Telegram.WebApp.initDataUnsafe.user.username;
@@ -109,6 +113,7 @@
       document.getElementById('page1').classList.remove('hidden');
       document.getElementById('userLabel').textContent = `👤 ${telegramUsername}`;
       updateBalanceDisplay();
+      renderCardButtons();
       highlightLockedSeeds();
     }
 
@@ -126,11 +131,49 @@
     }
 
     // --- Card selection ---
-    for (let i = 1; i <= 100; i++) {
-      const btn = document.createElement('button');
-      btn.textContent = i;
-      btn.addEventListener('click', () => generateCard(i));
-      document.getElementById('number-grid').appendChild(btn);
+    function renderCardButtons() {
+      const grid = document.getElementById('number-grid');
+      grid.innerHTML = '';
+      for (let i = 1; i <= 100; i++) {
+        const btn = document.createElement('button');
+        btn.textContent = i;
+        btn.id = `card-btn-${i}`;
+        btn.addEventListener('click', () => generateCard(i));
+        grid.appendChild(btn);
+      }
+      highlightLockedSeeds();
+    }
+
+    function highlightLockedSeeds() {
+      for (let i = 1; i <= 100; i++) {
+        const btn = document.getElementById(`card-btn-${i}`);
+        if (!btn) continue;
+        if (lockedSeeds.includes(i)) {
+          btn.classList.add('locked');
+          btn.disabled = true;
+        } else {
+          btn.classList.remove('locked');
+          btn.disabled = false;
+        }
+      }
+    }
+
+    // Remove locked (red) cards after 60s countdown ends or after game ends
+    function removeLockedCards() {
+      for (let i = 1; i <= 100; i++) {
+        const btn = document.getElementById(`card-btn-${i}`);
+        if (btn && btn.classList.contains('locked')) {
+          btn.style.display = 'none';
+        }
+      }
+    }
+
+    // Restore all cards (after game end/reset)
+    function restoreAllCards() {
+      for (let i = 1; i <= 100; i++) {
+        const btn = document.getElementById(`card-btn-${i}`);
+        if (btn) btn.style.display = '';
+      }
     }
 
     function mulberry32(a) {
@@ -145,22 +188,6 @@
     function updateBalanceDisplay() {
       document.getElementById('balanceLabel').textContent = ` | 💰 Balance: ${playerBalance}`;
       document.getElementById('balance-display').textContent = `💰 Balance: ${playerBalance}`;
-    }
-
-    function highlightLockedSeeds() {
-      const buttons = document.querySelectorAll('#number-grid button');
-      buttons.forEach(btn => {
-        const num = parseInt(btn.textContent);
-        if (lockedSeeds.includes(num)) {
-          btn.style.backgroundColor = 'red';
-          btn.style.color = 'white';
-          btn.disabled = true;
-        } else {
-          btn.style.backgroundColor = '';
-          btn.style.color = '';
-          btn.disabled = false;
-        }
-      });
     }
 
     function generateCard(seed) {
@@ -233,6 +260,7 @@
       document.getElementById('card-number-display').textContent = `Card Number: ${currentSeed}`;
       document.getElementById('countdown-bar').textContent = '';
       document.getElementById('countdown-bar').style.width = '100%';
+      document.getElementById('winner-section').innerHTML = '';
     }
 
     function renderMiniTable() {
@@ -349,6 +377,8 @@
       } else {
         bar.textContent = '';
         bar.style.width = '0%';
+        // Remove locked (red) cards after countdown ends
+        removeLockedCards();
       }
     });
 
@@ -356,8 +386,8 @@
     socket.on('numberCalled', (number) => {
       if (!calledNumbers.has(number)) {
         calledNumbers.add(number);
-        lastBalls.push(number);
-        if (lastBalls.length > 5) lastBalls.shift();
+        lastBalls.unshift(number);
+        if (lastBalls.length > 5) lastBalls.pop();
         renderBalls();
         renderMiniTable();
         renderGameCard();
@@ -373,7 +403,7 @@
         const ball = document.createElement('div');
         ball.textContent = `${letter}${number}`;
         ball.className = `ball ${letter}`;
-        if (idx === lastBalls.length - 1) {
+        if (idx === 0) {
           ball.classList.add('animate');
           setTimeout(() => ball.classList.remove('animate'), 900);
         }
@@ -392,19 +422,78 @@
 
     // --- WINNER BROADCAST FOR ALL ---
     socket.on('winner', (data) => {
-      document.getElementById('game-message').textContent = `🎉 ${data.username} got Bingo! 🏆 Won: ${data.winPoint}`;
+      showWinner(data);
       if (winnerTimeout) clearTimeout(winnerTimeout);
-      winnerTimeout = setTimeout(() => {
-        document.getElementById('page2').classList.add('hidden');
-        document.getElementById('page1').classList.remove('hidden');
-        document.getElementById('bingo-container').innerHTML = '';
-        document.getElementById('game-message').textContent = '';
-        manuallyMarked.clear();
-        gameCard = null;
-        lastBalls = [];
-        renderBalls();
+      if (playAgainTimeout) clearTimeout(playAgainTimeout);
+
+      // Play Again logic
+      let playAgainClicked = false;
+      const playAgainBtn = document.getElementById('winner-play-again');
+      playAgainBtn.onclick = () => {
+        playAgainClicked = true;
+        socket.emit('playAgain');
+        document.getElementById('winner-section').innerHTML = '';
+      };
+
+      playAgainTimeout = setTimeout(() => {
+        if (!playAgainClicked) {
+          document.getElementById('page2').classList.add('hidden');
+          document.getElementById('page1').classList.remove('hidden');
+          document.getElementById('bingo-container').innerHTML = '';
+          document.getElementById('game-message').textContent = '';
+          manuallyMarked.clear();
+          gameCard = null;
+          lastBalls = [];
+          renderBalls();
+          restoreAllCards();
+        }
       }, 10000);
     });
+
+    function showWinner(data) {
+      const section = document.getElementById('winner-section');
+      section.innerHTML = '';
+      const container = document.createElement('div');
+      container.id = 'winner-card-display';
+      const title = document.createElement('div');
+      title.innerHTML = `🎉 <b>${data.username}</b> got Bingo!<br>🏆 Won: <span style="color:green">${data.winPoint}</span>`;
+      const table = document.createElement('table');
+      table.className = 'bingo-card';
+      const header = document.createElement('tr');
+      ['B', 'I', 'N', 'G', 'O'].forEach(letter => {
+        const th = document.createElement('td');
+        th.innerHTML = `<div class="ball ${letter}">${letter}</div>`;
+        header.appendChild(th);
+      });
+      table.appendChild(header);
+      for (let row = 0; row < 5; row++) {
+        const tr = document.createElement('tr');
+        for (let col = 0; col < 5; col++) {
+          const td = document.createElement('td');
+          const val = data.card[col][row];
+          td.textContent = val;
+          td.classList.add('marked');
+          tr.appendChild(td);
+        }
+        table.appendChild(tr);
+      }
+      container.appendChild(title);
+      container.appendChild(table);
+      section.appendChild(container);
+
+      // Play Again Button
+      const playBtn = document.createElement('button');
+      playBtn.textContent = "Play Again";
+      playBtn.id = "winner-play-again";
+      playBtn.style.marginTop = "12px";
+      playBtn.style.padding = "8px 16px";
+      playBtn.style.fontSize = "16px";
+      playBtn.style.background = "#28a745";
+      playBtn.style.color = "white";
+      playBtn.style.border = "none";
+      playBtn.style.borderRadius = "6px";
+      section.appendChild(playBtn);
+    }
 
     socket.on('blocked', (reason) => {
       document.getElementById('game-message').textContent = reason;
@@ -412,6 +501,7 @@
     });
 
     socket.on('reset', () => {
+      restoreAllCards();
       location.reload();
     });
   </script>
