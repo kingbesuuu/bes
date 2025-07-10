@@ -14,7 +14,7 @@ app.use(express.json());
 const server = http.createServer(app);
 const io = new Server(server);
 
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 const dbFile = join(__dirname, 'db.json');
 const adapter = new JSONFile(dbFile);
 const db = new Low(adapter);
@@ -22,6 +22,34 @@ await db.read();
 db.data ||= { users: {}, devices: {} };
 await db.write();
 
+// === Serve static files from /public ===
+app.use(express.static(join(__dirname, 'public')));
+app.get('*', (req, res) => {
+  res.sendFile(join(__dirname, 'public', 'index.html'));
+});
+
+// --- Admin endpoints ---
+const ADMIN_PASSWORD = 'your_admin_password'; // CHANGE THIS!
+
+app.get('/admin/get-balance', async (req, res) => {
+  const { username, adminSecret } = req.query;
+  if (adminSecret !== ADMIN_PASSWORD) return res.json({ success: false, error: 'Unauthorized' });
+  const user = Object.values(db.data.users).find(u => u.username === username);
+  if (!user) return res.json({ success: false, error: 'User not found' });
+  return res.json({ success: true, balance: user.balance });
+});
+
+app.post('/admin/update-balance', async (req, res) => {
+  const { username, balance, adminSecret } = req.body;
+  if (adminSecret !== ADMIN_PASSWORD) return res.json({ success: false, error: 'Unauthorized' });
+  const userKey = Object.keys(db.data.users).find(k => db.data.users[k].username === username);
+  if (!userKey) return res.json({ success: false, error: 'User not found' });
+  db.data.users[userKey].balance = Number(balance);
+  await db.write();
+  return res.json({ success: true });
+});
+
+// === Game State ===
 let players = {};
 let calledNumbers = new Set();
 let lockedSeeds = [];
@@ -138,9 +166,9 @@ function resetGame() {
   io.emit('reset');
 }
 
+// === Socket.IO ===
 io.on('connection', (socket) => {
   socket.on('register', async ({ username, id, seed, deviceId }) => {
-    // Only real Telegram usernames and IDs, and deviceId required
     if (!/^[a-zA-Z0-9_]{5,32}$/.test(username) || !id || !deviceId) {
       socket.emit('blocked', "Only real Telegram usernames and device IDs are allowed.");
       return;
