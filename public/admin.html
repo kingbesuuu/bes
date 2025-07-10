@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Admin - Update Player Balance</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 40px; background: #f9f9f9; }
+    label { display: block; margin-top: 16px; }
+    input, button { padding: 8px; margin-top: 4px; }
+    #result { margin-top: 20px; }
+    .success { color: green; }
+    .error { color: red; }
+  </style>
+</head>
+<body>
+  <h2>Admin: Update Player Balance</h2>
+  <form id="adminForm">
+    <label>
+      Telegram Username:
+      <input type="text" id="username" required>
+    </label>
+    <label>
+      Telegram ID:
+      <input type="text" id="id" required>
+    </label>
+    <label>
+      New Balance:
+      <input type="number" id="balance" required>
+    </label>
+    <label>
+      Admin Secret:
+      <input type="password" id="adminSecret" required>
+    </label>
+    <button type="submit">Update Balance</button>
+  </form>
+  <div id="result"></div>
+  <script>
+    document.getElementById('adminForm').onsubmit = async function(e) {
+      e.preventDefault();
+      const username = document.getElementById('username').value.trim();
+      const id = document.getElementById('id').value.trim();
+      const balance = Number(document.getElementById('balance').value);
+      const adminSecret = document.getElementById('adminSecret').value;
+      const resultDiv = document.getElementById('result');
+      resultDiv.textContent = "Processing...";
+      resultDiv.className = "";
+      const res = await fetch('/admin/update-balance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, id, balance, adminSecret })
+      });
+      const data = await res.json();
+      if (data.success) {
+        resultDiv.textContent = `✅ Updated ${data.username} (ID: ${data.id}) balance to ${data.balance}`;
+        resultDiv.className = "success";
+      } else {
+        resultDiv.textContent = `❌ Error: ${data.error || 'Unknown error'}`;
+        resultDiv.className = "error";
+      }
+    };
+  </script>
+</body>
+</html>

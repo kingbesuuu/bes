@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Multiplayer Bingo</title>
+  <script src="/socket.io/socket.io.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 10px; background-color: #ccffff; }
+    .hidden { display: none; }
+    .grid { display: grid; grid-template-columns: repeat(10, 24px); gap: 3px; margin-top: 10px; }
+    .grid button { width: 24px; height: 24px; font-size: 10px; cursor: pointer; }
+    .bingo-card table { border-collapse: collapse; margin-bottom: 10px; }
+    .bingo-card td { background-color: white; color: blue; border: 1px solid #FFC0CB; font-size: 12px; text-align: center; vertical-align: middle; width: 28px; height: 28px; cursor: pointer; transition: background 0.3s; }
+    .bingo-card .free { background-color: #ccc; color: yellow; cursor: default; }
+    .bingo-card .marked { background-color: lightgreen !important; color: black; }
+    .info-bar { display: flex; gap: 10px; padding: 10px; background-color: #e6f7ff; border-radius: 10px; margin-bottom: 1px; font-size: 10px; font-weight: bold; flex-wrap: wrap; }
+    .info-bar div { padding: 5px 7px; border-radius: 5px; background-color: white; }
+    .ball-container { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 10px; }
+    .ball { width: 28px; height: 28px; border-radius: 50%; color: #fff; font-weight: bold; display: flex; align-items: center; justify-content: center; font-size: 12px; margin: 1px; }
+    .ball.B { background: orange; } .ball.I { background: green; }
+    .ball.N { background: blue; } .ball.G { background: red; } .ball.O { background: purple; }
+    .buttons { display: flex; gap: 10px; margin-top: 10px; justify-content: center; }
+    .buttons button { padding: 6px 12px; font-size: 12px; cursor: pointer; }
+    #game-message { margin-top: 10px; font-weight: bold; }
+    #welcome-message { margin-top: 10px; color: green; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <div id="registerSection">
+    <form id="registerForm">
+      <label>
+        Enter your Telegram Username:
+        <input type="text" id="username" pattern="[a-zA-Z0-9_]{5,32}" required>
+      </label>
+      <button type="submit">Register</button>
+    </form>
+    <div id="registerStatus"></div>
+  </div>
+  <div id="page1" class="hidden">
+    <div class="grid" id="number-grid"></div>
+    <div class="bingo-card" id="bingo-container"></div>
+    <div id="welcome-message"></div>
+  </div>
+  <div id="page2" class="hidden">
+    <div class="info-bar">
+      <div id="called-count">Called: 0</div>
+      <div id="balance-display">💰 Balance: 0</div>
+      <div id="player-count">👥 Players: 0</div>
+      <div id="gain-point">🏆 win: 0</div>
+    </div>
+    <div class="ball-container" id="ball-scroll"></div>
+    <div class="bingo-card" id="game-card"></div>
+    <div id="card-number-display" style="margin-top: 8px; font-size: 12px; font-weight: bold; text-align: center; color: red;"></div>
+    <div class="buttons">
+      <button onclick="checkBingo()">Bingo!</button>
+      <button onclick="endGame()">End Game</button>
+    </div>
+    <div id="game-message"></div>
+  </div>
+  <script>
+    const socket = io();
+    let telegramUsername = "";
+    let telegramId = "";
+    let playerBalance = 0;
+    let calledNumbers = new Set();
+    let manuallyMarked = new Set();
+    let lockedSeeds = [];
+    let currentSeed = null;
+    let gameCard = null;
+    let winnerInfo = null;
+
+    // --- Registration & Auto-login ---
+    function detectUser() {
+      if (window.Telegram && Telegram.WebApp && Telegram.WebApp.initDataUnsafe?.user) {
+        telegramUsername = Telegram.WebApp.initDataUnsafe.user.username;
+        telegramId = Telegram.WebApp.initDataUnsafe.user.id;
+      } else if (localStorage.getItem("bingoUsername") && localStorage.getItem("bingoId")) {
+        telegramUsername = localStorage.getItem("bingoUsername");
+        telegramId = localStorage.getItem("bingoId");
+      }
+    }
+    detectUser();
+
+    function showGameUI() {
+      document.getElementById('registerSection').classList.add('hidden');
+      document.getElementById('page1').classList.remove('hidden');
+      updateBalanceDisplay();
+      highlightLockedSeeds();
+    }
+
+    if (telegramUsername && telegramId) {
+      showGameUI();
+    } else {
+      document.getElementById('registerForm').onsubmit = function(e) {
+        e.preventDefault();
+        telegramUsername = document.getElementById('username').value.trim();
+        telegramId = "manual_" + Math.floor(Math.random() * 1e9);
+        localStorage.setItem("bingoUsername", telegramUsername);
+        localStorage.setItem("bingoId", telegramId);
+        showGameUI();
+      };
+    }
+
+    // --- Card selection ---
+    for (let i = 1; i <= 100; i++) {
+      const btn = document.createElement('button');
+      btn.textContent = i;
+      btn.addEventListener('click', () => generateCard(i));
+      document.getElementById('number-grid').appendChild(btn);
+    }
+
+    function mulberry32(a) {
+      return function() {
+        var t = a += 0x6D2B79F5;
+        t = Math.imul(t ^ t >>> 15, t | 1);
+        t ^= t + Math.imul(t ^ t >>> 7, t | 61);
+        return ((t ^ t >>> 14) >>> 0) / 4294967296;
+      }
+    }
+
+    function updateBalanceDisplay() {
+      document.getElementById('balance-display').textContent = `💰 Balance: ${playerBalance}`;
+    }
+
+    function highlightLockedSeeds() {
+      const buttons = document.querySelectorAll('#number-grid button');
+      buttons.forEach(btn => {
+        const num = parseInt(btn.textContent);
+        if (lockedSeeds.includes(num)) {
+          btn.style.backgroundColor = 'red';
+          btn.style.color = 'white';
+          btn.disabled = true;
+        } else {
+          btn.style.backgroundColor = '';
+          btn.style.color = '';
+          btn.disabled = false;
+        }
+      });
+    }
+
+    function generateCard(seed) {
+      if (lockedSeeds.includes(seed)) {
+        alert("❌ Card already picked by another player!");
+        return;
+      }
+      currentSeed = seed;
+      const rand = mulberry32(seed);
+      const ranges = [[1,15], [16,30], [31,45], [46,60], [61,75]];
+      const card = [];
+      for (let col = 0; col < 5; col++) {
+        const [min, max] = ranges[col];
+        const nums = new Set();
+        while (nums.size < 5) {
+          const n = Math.floor(rand() * (max - min + 1)) + min;
+          nums.add(n);
+        }
+        card.push([...nums]);
+      }
+      card[2][2] = 'FREE';
+      renderCard(card);
+    }
+
+    function renderCard(card) {
+      const container = document.createElement('div');
+      container.className = 'bingo-card';
+      const table = document.createElement('table');
+      for (let row = 0; row < 5; row++) {
+        const tr = document.createElement('tr');
+        for (let col = 0; col < 5; col++) {
+          const td = document.createElement('td');
+          const val = card[col][row];
+          td.textContent = val;
+          if (val === 'FREE') {
+            td.classList.add('free', 'marked');
+          }
+          tr.appendChild(td);
+        }
+        table.appendChild(tr);
+      }
+      container.appendChild(table);
+      const buttons = document.createElement('div');
+      buttons.className = 'buttons';
+      const backButton = document.createElement('button');
+      backButton.textContent = 'Back';
+      backButton.onclick = () => { document.getElementById('bingo-container').innerHTML = ''; };
+      const playButton = document.createElement('button');
+      playButton.textContent = 'Play';
+      playButton.onclick = () => startGame(card);
+      buttons.appendChild(backButton);
+      buttons.appendChild(playButton);
+      document.getElementById('bingo-container').innerHTML = '';
+      document.getElementById('bingo-container').appendChild(container);
+      document.getElementById('bingo-container').appendChild(buttons);
+    }
+
+    function startGame(card) {
+      socket.emit('register', { username: telegramUsername, id: telegramId, seed: currentSeed });
+      document.getElementById('page1').classList.add('hidden');
+      document.getElementById('page2').classList.remove('hidden');
+      gameCard = card;
+      calledNumbers.clear();
+      manuallyMarked.clear();
+      document.getElementById('ball-scroll').innerHTML = '';
+      document.getElementById('called-count').textContent = 'Called: 0';
+      renderGameCard();
+      document.getElementById('card-number-display').textContent = `Card Number: ${currentSeed}`;
+    }
+
+    function renderGameCard() {
+      const container = document.getElementById('game-card');
+      container.innerHTML = '';
+      if (!gameCard) return;
+      const table = document.createElement('table');
+      for (let row = 0; row < 5; row++) {
+        const tr = document.createElement('tr');
+        for (let col = 0; col < 5; col++) {
+          const td = document.createElement('td');
+          const val = gameCard[col][row];
+          td.textContent = val;
+          if (val === 'FREE') {
+            td.classList.add('free', 'marked');
+          } else {
+            td.addEventListener('click', () => markCell(td, val));
+            if (manuallyMarked.has(parseInt(val))) td.classList.add('marked');
+          }
+          tr.appendChild(td);
+        }
+        table.appendChild(tr);
+      }
+      container.appendChild(table);
+    }
+
+    function markCell(td, val) {
+      val = parseInt(val);
+      if (!calledNumbers.has(val)) {
+        td.classList.add('invalid');
+        setTimeout(() => td.classList.remove('invalid'), 2000);
+        return;
+      }
+      if (manuallyMarked.has(val)) {
+        manuallyMarked.delete(val);
+        td.classList.remove('marked');
+      } else {
+        manuallyMarked.add(val);
+        td.classList.add('marked');
+      }
+    }
+
+    function checkBingo() {
+      socket.emit('checkBingo', Array.from(manuallyMarked));
+    }
+
+    function endGame() {
+      document.getElementById('page2').classList.add('hidden');
+      document.getElementById('page1').classList.remove('hidden');
+      document.getElementById('bingo-container').innerHTML = '';
+      document.getElementById('game-message').textContent = '';
+      manuallyMarked.clear();
+      gameCard = null;
+      winnerInfo = null;
+      socket.emit('endGame');
+    }
+
+    // --- SOCKET EVENTS ---
+    socket.on('balanceUpdate', (newBalance) => {
+      playerBalance = newBalance;
+      updateBalanceDisplay();
+    });
+
+    socket.on('init', (data) => {
+      playerBalance = data.balance || 0;
+      updateBalanceDisplay();
+      calledNumbers = new Set(data.calledNumbers || []);
+      lockedSeeds = data.lockedSeeds || [];
+      highlightLockedSeeds();
+    });
+
+    socket.on('welcomeGift', (isNew) => {
+      document.getElementById('welcome-message').textContent = isNew
+        ? "🎁 Welcome! You received 10 free credits for your first play!"
+        : "";
+    });
+
+    socket.on('lockedSeeds', (seeds) => {
+      lockedSeeds = seeds || [];
+      highlightLockedSeeds();
+    });
+
+    socket.on('numberCalled', (number) => {
+      if (!calledNumbers.has(number)) {
+        calledNumbers.add(number);
+        updateBall(number);
+        renderGameCard();
+        document.getElementById('called-count').textContent = `Called: ${calledNumbers.size}`;
+      }
+    });
+
+    function updateBall(number) {
+      const letter = getLetterForNumber(number);
+      const formattedNumber = `${letter}${number}`;
+      const newBall = document.createElement('div');
+      newBall.textContent = formattedNumber;
+      newBall.className = `ball ${letter}`;
+      document.getElementById('ball-scroll').appendChild(newBall);
+      while (document.getElementById('ball-scroll').children.length > 5) {
+        document.getElementById('ball-scroll').removeChild(document.getElementById('ball-scroll').firstElementChild);
+      }
+    }
+
+    function getLetterForNumber(number) {
+      if (number <= 15) return 'B';
+      if (number <= 30) return 'I';
+      if (number <= 45) return 'N';
+      if (number <= 60) return 'G';
+      if (number <= 75) return 'O';
+      return '';
+    }
+
+    socket.on('countdown', (seconds) => {
+      // Optionally display countdown
+    });
+
+    socket.on('gameStarted', (data) => {
+      // Optionally display game started
+    });
+
+    socket.on('winner', (data) => {
+      document.getElementById('game-message').textContent = `🎉 ${data.username} got Bingo! 🏆 Won: ${data.winPoint}`;
+      setTimeout(() => {
+        document.getElementById('page2').classList.add('hidden');
+        document.getElementById('page1').classList.remove('hidden');
+        document.getElementById('bingo-container').innerHTML = '';
+        document.getElementById('game-message').textContent = '';
+        winnerInfo = null;
+      }, 15000);
+    });
+
+    socket.on('stopCalling', () => {});
+
+    socket.on('blocked', (reason) => {
+      document.getElementById('game-message').textContent = reason;
+      setTimeout(() => { document.getElementById('game-message').textContent = ""; }, 2000);
+    });
+
+    socket.on('reset', () => {
+      location.reload();
+    });
+  </script>
+</body>
+</html>

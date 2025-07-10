@@ -1,0 +1,14 @@
+{
+  "users": {
+    "sampleuser_123456789": {
+      "balance": 10,
+      "username": "sampleuser",
+      "id": 123456789
+    },
+    "anotheruser_manual_987654321": {
+      "balance": 25,
+      "username": "anotheruser",
+      "id": "manual_987654321"
+    }
+  }
+}
