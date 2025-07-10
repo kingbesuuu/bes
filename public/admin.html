@@ -5,57 +5,90 @@
   <title>Admin - Update Player Balance</title>
   <style>
     body { font-family: Arial, sans-serif; margin: 40px; background: #f9f9f9; }
+    .hidden { display: none; }
+    .panel { background: #fff; border-radius: 10px; padding: 30px 24px; box-shadow: 0 2px 12px #0002; max-width: 400px; margin: 40px auto; }
     label { display: block; margin-top: 16px; }
     input, button { padding: 8px; margin-top: 4px; }
     #result { margin-top: 20px; }
     .success { color: green; }
     .error { color: red; }
+    .row { display: flex; gap: 10px; align-items: center; }
+    .row input { flex: 1; }
   </style>
 </head>
 <body>
-  <h2>Admin: Update Player Balance</h2>
-  <form id="adminForm">
+  <div class="panel" id="loginPanel">
+    <h2>Admin Login</h2>
     <label>
-      Telegram Username:
-      <input type="text" id="username" required>
+      Admin Password:
+      <input type="password" id="adminPassword" required>
     </label>
-    <label>
-      Telegram ID:
-      <input type="text" id="id" required>
-    </label>
-    <label>
-      New Balance:
-      <input type="number" id="balance" required>
-    </label>
-    <label>
-      Admin Secret:
-      <input type="password" id="adminSecret" required>
-    </label>
-    <button type="submit">Update Balance</button>
-  </form>
-  <div id="result"></div>
+    <button id="loginBtn">Login</button>
+    <div id="loginResult"></div>
+  </div>
+  <div class="panel hidden" id="adminPanel">
+    <h2>Update Player Balance</h2>
+    <div class="row">
+      <input type="text" id="username" placeholder="Player Username" required>
+      <button id="checkBtn">Check</button>
+    </div>
+    <div id="currentBalance"></div>
+    <div id="updateSection" class="hidden">
+      <label>
+        New Balance:
+        <input type="number" id="balance" required>
+      </label>
+      <button id="confirmBtn">Confirm</button>
+    </div>
+    <div id="result"></div>
+  </div>
   <script>
-    document.getElementById('adminForm').onsubmit = async function(e) {
-      e.preventDefault();
+    let adminSecret = "";
+    let checkedUser = "";
+    document.getElementById('loginBtn').onclick = async function() {
+      adminSecret = document.getElementById('adminPassword').value;
+      // fake check, in production verify on server!
+      if(adminSecret === "your_admin_password") {
+        document.getElementById('loginPanel').classList.add('hidden');
+        document.getElementById('adminPanel').classList.remove('hidden');
+      } else {
+        document.getElementById('loginResult').textContent = "Wrong password!";
+      }
+    };
+
+    document.getElementById('checkBtn').onclick = async function() {
       const username = document.getElementById('username').value.trim();
-      const id = document.getElementById('id').value.trim();
+      document.getElementById('result').textContent = "";
+      document.getElementById('updateSection').classList.add('hidden');
+      if (!username) return;
+      // Replace with real API call in production!
+      const res = await fetch(`/admin/get-balance?username=${encodeURIComponent(username)}&adminSecret=${encodeURIComponent(adminSecret)}`);
+      const data = await res.json();
+      if(data.success) {
+        checkedUser = username;
+        document.getElementById('currentBalance').textContent = `Current Balance: ${data.balance}`;
+        document.getElementById('updateSection').classList.remove('hidden');
+      } else {
+        document.getElementById('currentBalance').textContent = "";
+        document.getElementById('result').textContent = data.error || "User not found.";
+      }
+    };
+
+    document.getElementById('confirmBtn').onclick = async function() {
       const balance = Number(document.getElementById('balance').value);
-      const adminSecret = document.getElementById('adminSecret').value;
-      const resultDiv = document.getElementById('result');
-      resultDiv.textContent = "Processing...";
-      resultDiv.className = "";
+      if (!checkedUser || isNaN(balance)) return;
       const res = await fetch('/admin/update-balance', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, id, balance, adminSecret })
+        body: JSON.stringify({ username: checkedUser, balance, adminSecret })
       });
       const data = await res.json();
       if (data.success) {
-        resultDiv.textContent = `✅ Updated ${data.username} (ID: ${data.id}) balance to ${data.balance}`;
-        resultDiv.className = "success";
+        document.getElementById('result').textContent = `✅ Updated ${checkedUser} balance to ${balance}`;
+        document.getElementById('result').className = "success";
       } else {
-        resultDiv.textContent = `❌ Error: ${data.error || 'Unknown error'}`;
-        resultDiv.className = "error";
+        document.getElementById('result').textContent = `❌ Error: ${data.error || 'Unknown error'}`;
+        document.getElementById('result').className = "error";
       }
     };
   </script>

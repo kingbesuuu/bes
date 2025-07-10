@@ -14,19 +14,13 @@ app.use(express.json());
 const server = http.createServer(app);
 const io = new Server(server);
 
-const PORT = process.env.PORT || 3000;
+const PORT = 3000;
 const dbFile = join(__dirname, 'db.json');
 const adapter = new JSONFile(dbFile);
 const db = new Low(adapter);
 await db.read();
 db.data ||= { users: {}, devices: {} };
 await db.write();
-
-// Serve static files
-app.use(express.static(join(__dirname, 'public')));
-app.get('*', (req, res) => {
-  res.sendFile(join(__dirname, 'public', 'index.html'));
-});
 
 let players = {};
 let calledNumbers = new Set();
