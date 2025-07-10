@@ -6,19 +6,19 @@
   <title>Multiplayer Bingo</title>
   <script src="/socket.io/socket.io.js"></script>
   <style>
-    body { font-family: Arial, sans-serif; padding: 10px; background-color: #ccffff; }
+    body { font-family: Arial, sans-serif; padding: 10px; background: #ccffff; }
     .hidden { display: none; }
     .grid { display: grid; grid-template-columns: repeat(10, 24px); gap: 3px; margin-top: 10px; }
     .grid button { width: 24px; height: 24px; font-size: 10px; cursor: pointer; }
     .grid button.locked { background: red; color: white; }
     .bingo-card table, .mini-table { border-collapse: collapse; margin-bottom: 10px; }
-    .bingo-card td, .mini-table td { background-color: white; color: blue; border: 1px solid #FFC0CB; font-size: 12px; text-align: center; vertical-align: middle; width: 28px; height: 28px; cursor: pointer; transition: background 0.3s; }
-    .bingo-card .free { background-color: #ccc; color: yellow; cursor: default; }
-    .bingo-card .marked { background-color: lightgreen !important; color: black; }
-    .mini-table .called { background-color: yellow; color: yellow; }
+    .bingo-card td, .mini-table td { background: white; color: blue; border: 1px solid #FFC0CB; font-size: 12px; text-align: center; vertical-align: middle; width: 28px; height: 28px; cursor: pointer; transition: background 0.3s; }
+    .bingo-card .free { background: #ccc; color: yellow; cursor: default; }
+    .bingo-card .marked { background: lightgreen !important; color: black; }
+    .mini-table .called { background: yellow; color: yellow; }
     .mini-table th { height: 20px; width: 28px; text-align: center; font-size: 12px; }
-    .info-bar { display: flex; gap: 10px; padding: 10px; background-color: #e6f7ff; border-radius: 10px; margin-bottom: 1px; font-size: 10px; font-weight: bold; flex-wrap: wrap; }
-    .info-bar div { padding: 5px 7px; border-radius: 5px; background-color: white; }
+    .info-bar { display: flex; gap: 10px; padding: 10px; background: #e6f7ff; border-radius: 10px; margin-bottom: 1px; font-size: 10px; font-weight: bold; flex-wrap: wrap; }
+    .info-bar div { padding: 5px 7px; border-radius: 5px; background: white; }
     .ball-container { display: flex; flex-direction: row-reverse; flex-wrap: wrap; gap: 4px; margin-top: 10px; justify-content: flex-start; margin-left: 60px; margin-bottom: 10px; }
     .ball { width: 28px; height: 28px; border-radius: 50%; color: #fff; font-weight: bold; display: flex; align-items: center; justify-content: center; font-size: 12px; margin: 1px; transition: background 0.5s; }
     .ball.B { background: orange; } .ball.I { background: green; }
@@ -35,7 +35,16 @@
     .mini-table-container { margin-right: 20px; }
     #countdown-bar { height: 16px; background: green; width: 100%; margin-top: 8px; color: white; text-align: center; font-weight: bold; border-radius: 8px; transition: width 0.5s; }
     #registerForm button[type="button"] { background: #0088cc; color: white; border: none; padding: 8px 16px; border-radius: 5px; margin-left: 10px; }
-    .bingo-card { margin-top: 30px; }
+    .bingo-card { margin-top: 40px; }
+    #registerSection { max-width: 350px; margin: 60px auto 0 auto; background: #fff; border-radius: 12px; box-shadow: 0 2px 16px #0001; padding: 24px 18px; }
+    #registerForm label { display: block; margin-bottom: 8px; }
+    #registerForm input { width: 100%; margin-bottom: 12px; padding: 6px 8px; border-radius: 5px; border: 1px solid #ccc; }
+    #registerForm button { margin-top: 6px; }
+    @media (max-width: 600px) {
+      .layout-flex { flex-direction: column; }
+      .mini-table-container { margin-right: 0; }
+      .ball-container { margin-left: 0; }
+    }
   </style>
 </head>
 <body>
@@ -283,7 +292,6 @@
     }
 
     function startGame(card) {
-      // Notify other tabs
       bc.postMessage('startGame');
       document.getElementById('winner-section').innerHTML = '';
       socket.emit('register', { username: telegramUsername, id: telegramId, seed: currentSeed, deviceId });
