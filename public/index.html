@@ -35,6 +35,7 @@
     .mini-table-container { margin-right: 20px; }
     #countdown-bar { height: 16px; background: green; width: 100%; margin-top: 8px; color: white; text-align: center; font-weight: bold; border-radius: 8px; transition: width 0.5s; }
     #registerForm button[type="button"] { background: #0088cc; color: white; border: none; padding: 8px 16px; border-radius: 5px; margin-left: 10px; }
+    .bingo-card { margin-top: 30px; }
   </style>
 </head>
 <body>
@@ -84,6 +85,27 @@
     <div id="game-message"></div>
   </div>
   <script>
+    // Device ID for user recognition (UUID)
+    function getDeviceId() {
+      let id = localStorage.getItem('bingoDeviceId');
+      if (!id) {
+        id = 'dev-' + Math.random().toString(36).slice(2) + Date.now();
+        localStorage.setItem('bingoDeviceId', id);
+      }
+      return id;
+    }
+    const deviceId = getDeviceId();
+
+    // Tab sync: Only one tab can play per device
+    const bc = new BroadcastChannel('bingo-tab');
+    let activeTab = true;
+    bc.onmessage = (ev) => {
+      if (ev.data === 'startGame' && activeTab) {
+        alert('Another tab is playing. Only one tab per device is allowed.');
+        location.reload();
+      }
+    };
+
     const socket = io();
     let telegramUsername = "";
     let telegramId = "";
@@ -100,17 +122,14 @@
 
     // Registration & Auto-login
     function detectUser() {
-      if (window.Telegram && Telegram.WebApp && Telegram.WebApp.initDataUnsafe?.user) {
-        telegramUsername = Telegram.WebApp.initDataUnsafe.user.username;
-        telegramId = Telegram.WebApp.initDataUnsafe.user.id;
-      } else if (localStorage.getItem("bingoUsername") && localStorage.getItem("bingoId")) {
+      if (localStorage.getItem("bingoUsername") && localStorage.getItem("bingoId")) {
         telegramUsername = localStorage.getItem("bingoUsername");
         telegramId = localStorage.getItem("bingoId");
+        showLobby();
       }
     }
     detectUser();
 
-    // Telegram button logic
     document.getElementById('telegramBtn').onclick = function(e) {
       e.preventDefault();
       if (window.Telegram && Telegram.WebApp && Telegram.WebApp.initDataUnsafe?.user) {
@@ -124,7 +143,6 @@
       }
     };
 
-    // Manual registration logic
     document.getElementById('registerForm').onsubmit = function(e) {
       e.preventDefault();
       telegramUsername = document.getElementById('username').value.trim();
@@ -265,7 +283,10 @@
     }
 
     function startGame(card) {
-      socket.emit('register', { username: telegramUsername, id: telegramId, seed: currentSeed });
+      // Notify other tabs
+      bc.postMessage('startGame');
+      document.getElementById('winner-section').innerHTML = '';
+      socket.emit('register', { username: telegramUsername, id: telegramId, seed: currentSeed, deviceId });
       document.getElementById('page1').classList.add('hidden');
       document.getElementById('page2').classList.remove('hidden');
       gameCard = card;
@@ -279,7 +300,6 @@
       document.getElementById('card-number-display').textContent = `Card Number: ${currentSeed}`;
       document.getElementById('countdown-bar').textContent = '';
       document.getElementById('countdown-bar').style.width = '100%';
-      document.getElementById('winner-section').innerHTML = '';
     }
 
     function renderMiniTable() {
