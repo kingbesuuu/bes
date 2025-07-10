@@ -16,10 +16,10 @@
     .bingo-card .free { background-color: #ccc; color: yellow; cursor: default; }
     .bingo-card .marked { background-color: lightgreen !important; color: black; }
     .mini-table .called { background-color: yellow; color: yellow; }
-    .mini-table th { height: 20px; width: 20px; text-align: center; font-size: 12px; }
+    .mini-table th { height: 20px; width: 28px; text-align: center; font-size: 12px; }
     .info-bar { display: flex; gap: 10px; padding: 10px; background-color: #e6f7ff; border-radius: 10px; margin-bottom: 1px; font-size: 10px; font-weight: bold; flex-wrap: wrap; }
     .info-bar div { padding: 5px 7px; border-radius: 5px; background-color: white; }
-    .ball-container { display: flex; flex-direction: row-reverse; flex-wrap: wrap; gap: 4px; margin-top: 10px; justify-content: center; }
+    .ball-container { display: flex; flex-direction: row-reverse; flex-wrap: wrap; gap: 4px; margin-top: 10px; justify-content: flex-start; margin-left: 60px; margin-bottom: 10px; }
     .ball { width: 28px; height: 28px; border-radius: 50%; color: #fff; font-weight: bold; display: flex; align-items: center; justify-content: center; font-size: 12px; margin: 1px; transition: background 0.5s; }
     .ball.B { background: orange; } .ball.I { background: green; }
     .ball.N { background: blue; } .ball.G { background: red; } .ball.O { background: purple; }
@@ -34,6 +34,7 @@
     .layout-flex { display: flex; gap: 20px; align-items: flex-start; }
     .mini-table-container { margin-right: 20px; }
     #countdown-bar { height: 16px; background: green; width: 100%; margin-top: 8px; color: white; text-align: center; font-weight: bold; border-radius: 8px; transition: width 0.5s; }
+    #registerForm button[type="button"] { background: #0088cc; color: white; border: none; padding: 8px 16px; border-radius: 5px; margin-left: 10px; }
   </style>
 </head>
 <body>
@@ -43,7 +44,8 @@
         Enter your Telegram Username:
         <input type="text" id="username" pattern="[a-zA-Z0-9_]{5,32}" required>
       </label>
-      <button type="submit">Register</button>
+      <button type="submit" id="manualRegisterBtn">Register</button>
+      <button type="button" id="telegramBtn">Login with Telegram</button>
     </form>
     <div id="registerStatus"></div>
   </div>
@@ -108,6 +110,30 @@
     }
     detectUser();
 
+    // Telegram button logic
+    document.getElementById('telegramBtn').onclick = function(e) {
+      e.preventDefault();
+      if (window.Telegram && Telegram.WebApp && Telegram.WebApp.initDataUnsafe?.user) {
+        telegramUsername = Telegram.WebApp.initDataUnsafe.user.username;
+        telegramId = Telegram.WebApp.initDataUnsafe.user.id;
+        localStorage.setItem("bingoUsername", telegramUsername);
+        localStorage.setItem("bingoId", telegramId);
+        showLobby();
+      } else {
+        document.getElementById('registerStatus').textContent = "Please open this page inside Telegram WebApp to use Telegram login.";
+      }
+    };
+
+    // Manual registration logic
+    document.getElementById('registerForm').onsubmit = function(e) {
+      e.preventDefault();
+      telegramUsername = document.getElementById('username').value.trim();
+      telegramId = "manual_" + Math.floor(Math.random() * 1e9);
+      localStorage.setItem("bingoUsername", telegramUsername);
+      localStorage.setItem("bingoId", telegramId);
+      showLobby();
+    };
+
     function showLobby() {
       document.getElementById('registerSection').classList.add('hidden');
       document.getElementById('page1').classList.remove('hidden');
@@ -115,19 +141,6 @@
       updateBalanceDisplay();
       renderCardButtons();
       highlightLockedSeeds();
-    }
-
-    if (telegramUsername && telegramId) {
-      showLobby();
-    } else {
-      document.getElementById('registerForm').onsubmit = function(e) {
-        e.preventDefault();
-        telegramUsername = document.getElementById('username').value.trim();
-        telegramId = "manual_" + Math.floor(Math.random() * 1e9);
-        localStorage.setItem("bingoUsername", telegramUsername);
-        localStorage.setItem("bingoId", telegramId);
-        showLobby();
-      };
     }
 
     // --- Card selection ---
@@ -158,7 +171,6 @@
       }
     }
 
-    // Remove locked (red) cards after 60s countdown ends or after game ends
     function removeLockedCards() {
       for (let i = 1; i <= 100; i++) {
         const btn = document.getElementById(`card-btn-${i}`);
@@ -168,7 +180,6 @@
       }
     }
 
-    // Restore all cards (after game end/reset)
     function restoreAllCards() {
       for (let i = 1; i <= 100; i++) {
         const btn = document.getElementById(`card-btn-${i}`);
@@ -216,6 +227,14 @@
       const container = document.createElement('div');
       container.className = 'bingo-card';
       const table = document.createElement('table');
+      // Colorful BINGO balls header
+      const header = document.createElement('tr');
+      ['B', 'I', 'N', 'G', 'O'].forEach(letter => {
+        const th = document.createElement('td');
+        th.innerHTML = `<div class="ball ${letter}">${letter}</div>`;
+        header.appendChild(th);
+      });
+      table.appendChild(header);
       for (let row = 0; row < 5; row++) {
         const tr = document.createElement('tr');
         for (let col = 0; col < 5; col++) {
@@ -269,7 +288,7 @@
       const headerRow = document.createElement('tr');
       ['B', 'I', 'N', 'G', 'O'].forEach(letter => {
         const th = document.createElement('th');
-        th.textContent = letter;
+        th.innerHTML = `<div class="ball ${letter}">${letter}</div>`;
         headerRow.appendChild(th);
       });
       miniTable.appendChild(headerRow);
@@ -292,6 +311,14 @@
       container.innerHTML = '';
       if (!gameCard) return;
       const table = document.createElement('table');
+      // Colorful BINGO balls header
+      const header = document.createElement('tr');
+      ['B', 'I', 'N', 'G', 'O'].forEach(letter => {
+        const th = document.createElement('td');
+        th.innerHTML = `<div class="ball ${letter}">${letter}</div>`;
+        header.appendChild(th);
+      });
+      table.appendChild(header);
       for (let row = 0; row < 5; row++) {
         const tr = document.createElement('tr');
         for (let col = 0; col < 5; col++) {
@@ -367,7 +394,6 @@
       highlightLockedSeeds();
     });
 
-    // --- COUNTDOWN BAR ---
     socket.on('countdown', (seconds) => {
       const bar = document.getElementById('countdown-bar');
       if (seconds > 0) {
@@ -377,12 +403,10 @@
       } else {
         bar.textContent = '';
         bar.style.width = '0%';
-        // Remove locked (red) cards after countdown ends
         removeLockedCards();
       }
     });
 
-    // --- Called Numbers: Ball animation and mini-table update ---
     socket.on('numberCalled', (number) => {
       if (!calledNumbers.has(number)) {
         calledNumbers.add(number);
@@ -420,13 +444,11 @@
       return '';
     }
 
-    // --- WINNER BROADCAST FOR ALL ---
     socket.on('winner', (data) => {
       showWinner(data);
       if (winnerTimeout) clearTimeout(winnerTimeout);
       if (playAgainTimeout) clearTimeout(playAgainTimeout);
 
-      // Play Again logic
       let playAgainClicked = false;
       const playAgainBtn = document.getElementById('winner-play-again');
       playAgainBtn.onclick = () => {
