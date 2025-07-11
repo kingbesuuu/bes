@@ -60,6 +60,7 @@
   <script>
     let adminSecret = "";
     let checkedUser = "";
+
     document.getElementById('loginBtn').onclick = async function() {
       adminSecret = document.getElementById('adminPassword').value;
       if(adminSecret === "your_admin_password") {
@@ -82,6 +83,7 @@
         document.getElementById('currentBalance').textContent = `Current Balance: ${data.balance}`;
         document.getElementById('updateSection').classList.remove('hidden');
       } else {
+        checkedUser = "";
         document.getElementById('currentBalance').textContent = "";
         document.getElementById('result').textContent = data.error || "User not found.";
       }
@@ -99,6 +101,7 @@
       if (data.success) {
         document.getElementById('result').textContent = `✅ Updated ${checkedUser} balance to ${balance}`;
         document.getElementById('result').className = "success";
+        document.getElementById('currentBalance').textContent = `Current Balance: ${balance}`;
       } else {
         document.getElementById('result').textContent = `❌ Error: ${data.error || 'Unknown error'}`;
         document.getElementById('result').className = "error";

@@ -34,6 +34,8 @@ const ADMIN_PASSWORD = 'your_admin_password'; // CHANGE THIS!
 app.get('/admin/get-balance', async (req, res) => {
   const { username, adminSecret } = req.query;
   if (adminSecret !== ADMIN_PASSWORD) return res.json({ success: false, error: 'Unauthorized' });
+
+  // Case-insensitive search
   const user = Object.values(db.data.users).find(
     u => u.username && u.username.toLowerCase() === username.toLowerCase()
   );
@@ -44,10 +46,13 @@ app.get('/admin/get-balance', async (req, res) => {
 app.post('/admin/update-balance', async (req, res) => {
   const { username, balance, adminSecret } = req.body;
   if (adminSecret !== ADMIN_PASSWORD) return res.json({ success: false, error: 'Unauthorized' });
+
+  // Case-insensitive search for the user key
   const userKey = Object.keys(db.data.users).find(
     k => db.data.users[k].username && db.data.users[k].username.toLowerCase() === username.toLowerCase()
   );
   if (!userKey) return res.json({ success: false, error: 'User not found' });
+
   db.data.users[userKey].balance = Number(balance);
   await db.write();
   emitUserListToAdmins();
