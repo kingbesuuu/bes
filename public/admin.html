@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <title>Admin - Update Player Balance</title>
+  <script src="/socket.io/socket.io.js"></script>
   <style>
     body { font-family: Arial, sans-serif; margin: 40px; background: #f9f9f9; }
     .hidden { display: none; }
@@ -14,6 +15,9 @@
     .error { color: red; }
     .row { display: flex; gap: 10px; align-items: center; }
     .row input { flex: 1; }
+    table { margin: 30px auto 0 auto; border-collapse: collapse; width: 90%; }
+    th, td { border: 1px solid #ccc; padding: 6px 10px; }
+    th { background: #e6f7ff; }
   </style>
 </head>
 <body>
@@ -41,13 +45,23 @@
       <button id="confirmBtn">Confirm</button>
     </div>
     <div id="result"></div>
+    <h3 style="margin-top:30px;">All Registered Users (Real-Time)</h3>
+    <table id="userTable">
+      <thead>
+        <tr>
+          <th>Username</th>
+          <th>Balance</th>
+          <th>Device ID</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
   </div>
   <script>
     let adminSecret = "";
     let checkedUser = "";
     document.getElementById('loginBtn').onclick = async function() {
       adminSecret = document.getElementById('adminPassword').value;
-      // fake check, in production verify on server!
       if(adminSecret === "your_admin_password") {
         document.getElementById('loginPanel').classList.add('hidden');
         document.getElementById('adminPanel').classList.remove('hidden');
@@ -61,7 +75,6 @@
       document.getElementById('result').textContent = "";
       document.getElementById('updateSection').classList.add('hidden');
       if (!username) return;
-      // Replace with real API call in production!
       const res = await fetch(`/admin/get-balance?username=${encodeURIComponent(username)}&adminSecret=${encodeURIComponent(adminSecret)}`);
       const data = await res.json();
       if(data.success) {
@@ -91,6 +104,18 @@
         document.getElementById('result').className = "error";
       }
     };
+
+    // Real-time user list
+    const adminSocket = io('/admin');
+    adminSocket.on('userList', function(users) {
+      const tbody = document.querySelector('#userTable tbody');
+      tbody.innerHTML = '';
+      users.forEach(u => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${u.username}</td><td>${u.balance}</td><td>${u.deviceId}</td>`;
+        tbody.appendChild(tr);
+      });
+    });
   </script>
 </body>
 </html>

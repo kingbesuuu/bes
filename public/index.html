@@ -6,36 +6,45 @@
   <title>Multiplayer Bingo</title>
   <script src="/socket.io/socket.io.js"></script>
   <style>
-    body { font-family: Arial, sans-serif; padding: 10px; background-color: #ccffff; }
+    body { font-family: Arial, sans-serif; padding: 10px; background: #ccffff; }
     .hidden { display: none; }
     .grid { display: grid; grid-template-columns: repeat(10, 24px); gap: 3px; margin-top: 10px; }
     .grid button { width: 24px; height: 24px; font-size: 10px; cursor: pointer; }
     .grid button.locked { background: red; color: white; }
     .bingo-card table, .mini-table { border-collapse: collapse; margin-bottom: 10px; }
-    .bingo-card td, .mini-table td { background-color: white; color: blue; border: 1px solid #FFC0CB; font-size: 12px; text-align: center; vertical-align: middle; width: 28px; height: 28px; cursor: pointer; transition: background 0.3s; }
-    .bingo-card .free { background-color: #ccc; color: yellow; cursor: default; }
-    .bingo-card .marked { background-color: lightgreen !important; color: black; }
-    .mini-table .called { background-color: yellow; color: yellow; }
+    .bingo-card td, .mini-table td { background: white; color: blue; border: 1px solid #FFC0CB; font-size: 12px; text-align: center; vertical-align: middle; width: 28px; height: 28px; cursor: pointer; transition: background 0.3s; }
+    .bingo-card .free { background: #ccc; color: yellow; cursor: default; }
+    .bingo-card .marked { background: lightgreen !important; color: black; }
+    .mini-table .called { background: yellow; color: yellow; }
     .mini-table th { height: 20px; width: 28px; text-align: center; font-size: 12px; }
-    .info-bar { display: flex; gap: 10px; padding: 10px; background-color: #e6f7ff; border-radius: 10px; margin-bottom: 1px; font-size: 10px; font-weight: bold; flex-wrap: wrap; }
-    .info-bar div { padding: 5px 7px; border-radius: 5px; background-color: white; }
-    .ball-container { display: flex; flex-direction: row-reverse; flex-wrap: wrap; gap: 4px; margin-top: 10px; justify-content: flex-start; margin-left: 60px; margin-bottom: 10px; }
+    .info-bar { display: flex; gap: 10px; padding: 10px; background: #e6f7ff; border-radius: 10px; margin-bottom: 1px; font-size: 10px; font-weight: bold; flex-wrap: wrap; }
+    .info-bar div { padding: 5px 7px; border-radius: 5px; background: white; }
+    .main-flex { display: flex; justify-content: center; align-items: flex-start; gap: 30px; }
+    .right-panel { display: flex; flex-direction: column; align-items: center; min-width: 320px; }
+    .mini-table-container { margin-right: 20px; }
+    .ball-container { display: flex; flex-direction: row-reverse; flex-wrap: wrap; gap: 4px; margin: 0 auto 10px auto; justify-content: center; }
     .ball { width: 28px; height: 28px; border-radius: 50%; color: #fff; font-weight: bold; display: flex; align-items: center; justify-content: center; font-size: 12px; margin: 1px; transition: background 0.5s; }
     .ball.B { background: orange; } .ball.I { background: green; }
     .ball.N { background: blue; } .ball.G { background: red; } .ball.O { background: purple; }
     .ball.animate { background: #0099ff !important; }
-    .buttons { display: flex; gap: 10px; margin-top: 10px; justify-content: center; }
-    .buttons button { padding: 6px 12px; font-size: 12px; cursor: pointer; }
+    .buttons { display: flex; gap: 10px; margin: 18px 0 0 0; justify-content: center; }
+    .buttons button { padding: 8px 18px; font-size: 14px; cursor: pointer; border-radius: 6px; border: none; background: #007bff; color: white; }
     #game-message { margin-top: 10px; font-weight: bold; }
-    #winner-card-display { margin-top: 15px; text-align: center; }
+    #winner-section { margin-top: 18px; }
+    #winner-card-display { margin-top: 0; text-align: center; }
     #winner-card-display .bingo-card { margin: 0 auto; }
-    #winner-section { margin-top: 16px; }
     #welcome-message { margin-top: 10px; color: green; font-weight: bold; }
-    .layout-flex { display: flex; gap: 20px; align-items: flex-start; }
-    .mini-table-container { margin-right: 20px; }
     #countdown-bar { height: 16px; background: green; width: 100%; margin-top: 8px; color: white; text-align: center; font-weight: bold; border-radius: 8px; transition: width 0.5s; }
-    #registerForm button[type="button"] { background: #0088cc; color: white; border: none; padding: 8px 16px; border-radius: 5px; margin-left: 10px; }
     .bingo-card { margin-top: 30px; }
+    #registerSection { max-width: 350px; margin: 60px auto 0 auto; background: #fff; border-radius: 12px; box-shadow: 0 2px 16px #0001; padding: 24px 18px; }
+    #registerForm label { display: block; margin-bottom: 8px; }
+    #registerForm input { width: 100%; margin-bottom: 12px; padding: 6px 8px; border-radius: 5px; border: 1px solid #ccc; }
+    #registerForm button { margin-top: 6px; }
+    @media (max-width: 900px) {
+      .main-flex { flex-direction: column; align-items: stretch; gap: 0; }
+      .mini-table-container { margin-right: 0; }
+      .right-panel { min-width: 0; }
+    }
   </style>
 </head>
 <body>
@@ -56,6 +65,7 @@
       <span id="balanceLabel"></span>
     </div>
     <div class="grid" id="number-grid"></div>
+    <div id="notEnoughBalanceMsg" style="color:red;font-weight:bold;"></div>
     <div class="bingo-card" id="bingo-container"></div>
     <div id="welcome-message"></div>
   </div>
@@ -67,12 +77,12 @@
       <div id="player-count">👥 Players: 0</div>
       <div id="gain-point">🏆 win: 0</div>
     </div>
-    <div class="ball-container" id="ball-scroll"></div>
-    <div class="layout-flex">
+    <div class="main-flex">
       <div class="mini-table-container">
         <table class="mini-table" id="mini-table"></table>
       </div>
-      <div>
+      <div class="right-panel">
+        <div class="ball-container" id="ball-scroll"></div>
         <div class="bingo-card" id="game-card"></div>
         <div id="card-number-display" style="margin-top: 8px; font-size: 12px; font-weight: bold; text-align: center; color: red;"></div>
         <div class="buttons">
@@ -169,10 +179,18 @@
         const btn = document.createElement('button');
         btn.textContent = i;
         btn.id = `card-btn-${i}`;
+        btn.disabled = playerBalance < 10; // Disable if not enough balance
         btn.addEventListener('click', () => generateCard(i));
         grid.appendChild(btn);
       }
       highlightLockedSeeds();
+      // Show message if not enough balance
+      let msg = document.getElementById('notEnoughBalanceMsg');
+      if (playerBalance < 10) {
+        msg.textContent = 'You need at least 10 balance to play. Please contact admin or wait for a gift.';
+      } else {
+        msg.textContent = '';
+      }
     }
 
     function highlightLockedSeeds() {
@@ -182,7 +200,7 @@
         if (lockedSeeds.includes(i)) {
           btn.classList.add('locked');
           btn.disabled = true;
-        } else {
+        } else if (playerBalance >= 10) {
           btn.classList.remove('locked');
           btn.disabled = false;
         }
@@ -283,7 +301,6 @@
     }
 
     function startGame(card) {
-      // Notify other tabs
       bc.postMessage('startGame');
       document.getElementById('winner-section').innerHTML = '';
       socket.emit('register', { username: telegramUsername, id: telegramId, seed: currentSeed, deviceId });
@@ -392,6 +409,7 @@
     socket.on('balanceUpdate', (newBalance) => {
       playerBalance = newBalance;
       updateBalanceDisplay();
+      renderCardButtons();
     });
 
     socket.on('init', (data) => {
@@ -400,6 +418,7 @@
       calledNumbers = new Set(data.calledNumbers || []);
       lockedSeeds = data.lockedSeeds || [];
       highlightLockedSeeds();
+      renderCardButtons();
       renderMiniTable();
     });
 

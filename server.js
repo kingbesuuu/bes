@@ -22,7 +22,7 @@ await db.read();
 db.data ||= { users: {}, devices: {} };
 await db.write();
 
-// === Serve static files from /public ===
+// === Serve static files ===
 app.use(express.static(join(__dirname, 'public')));
 app.get('*', (req, res) => {
   res.sendFile(join(__dirname, 'public', 'index.html'));
@@ -34,7 +34,9 @@ const ADMIN_PASSWORD = 'your_admin_password'; // CHANGE THIS!
 app.get('/admin/get-balance', async (req, res) => {
   const { username, adminSecret } = req.query;
   if (adminSecret !== ADMIN_PASSWORD) return res.json({ success: false, error: 'Unauthorized' });
-  const user = Object.values(db.data.users).find(u => u.username === username);
+  const user = Object.values(db.data.users).find(
+    u => u.username && u.username.toLowerCase() === username.toLowerCase()
+  );
   if (!user) return res.json({ success: false, error: 'User not found' });
   return res.json({ success: true, balance: user.balance });
 });
@@ -42,11 +44,31 @@ app.get('/admin/get-balance', async (req, res) => {
 app.post('/admin/update-balance', async (req, res) => {
   const { username, balance, adminSecret } = req.body;
   if (adminSecret !== ADMIN_PASSWORD) return res.json({ success: false, error: 'Unauthorized' });
-  const userKey = Object.keys(db.data.users).find(k => db.data.users[k].username === username);
+  const userKey = Object.keys(db.data.users).find(
+    k => db.data.users[k].username && db.data.users[k].username.toLowerCase() === username.toLowerCase()
+  );
   if (!userKey) return res.json({ success: false, error: 'User not found' });
   db.data.users[userKey].balance = Number(balance);
   await db.write();
+  emitUserListToAdmins();
   return res.json({ success: true });
+});
+
+// --- Real-time admin user list ---
+const adminIo = io.of('/admin');
+
+function getAllUsers() {
+  return Object.values(db.data.users).map(u => ({
+    username: u.username,
+    balance: u.balance,
+    deviceId: u.deviceId
+  }));
+}
+function emitUserListToAdmins() {
+  adminIo.emit('userList', getAllUsers());
+}
+adminIo.on('connection', (socket) => {
+  socket.emit('userList', getAllUsers());
 });
 
 // === Game State ===
@@ -166,73 +188,59 @@ function resetGame() {
   io.emit('reset');
 }
 
-// === Socket.IO ===
 io.on('connection', (socket) => {
   socket.on('register', async ({ username, id, seed, deviceId }) => {
-    if (!/^[a-zA-Z0-9_]{5,32}$/.test(username) || !id || !deviceId) {
-      socket.emit('blocked', "Only real Telegram usernames and device IDs are allowed.");
-      return;
-    }
-    // One device, one account, one card per game
-    if (Object.values(playerDevices).includes(deviceId)) {
-      socket.emit('blocked', "You are already playing from this device.");
-      return;
-    }
-    // Only one card per user per game
-    if (Object.values(players).some(p => p.username === username)) {
-      socket.emit('blocked', "You already picked a card.");
-      return;
-    }
-    if (lockedSeeds.includes(seed)) {
-      socket.emit('blocked', "Card already picked by another player.");
-      return;
-    }
-    playerUserKeys[socket.id] = `${username}_${id}`;
-    playerDevices[socket.id] = deviceId;
-    players[socket.id] = { username, id, seed, deviceId };
-    lockedSeeds.push(seed);
-    currentCards[socket.id] = generateCard(seed);
-
-    // Welcome gift only once per device or username
-    let isNew = false;
     let userKey = `${username}_${id}`;
     if (!db.data.users[userKey]) {
       db.data.users[userKey] = { balance: 10, username, id, deviceId };
       db.data.devices[deviceId] = userKey;
-      isNew = true;
       await db.write();
     } else if (!db.data.devices[deviceId]) {
       db.data.devices[deviceId] = userKey;
       await db.write();
     }
-
-    // Deduct entry fee (10) if not already deducted for this round
-    if (db.data.users[userKey].balance < 10) {
-      socket.emit('blocked', "❌ You need at least 10 balance to join the game.");
-      delete players[socket.id];
-      delete currentCards[socket.id];
-      delete playerUserKeys[socket.id];
-      delete playerDevices[socket.id];
-      lockedSeeds = lockedSeeds.filter(s => s !== seed);
-      io.emit('lockedSeeds', lockedSeeds);
+    // If seed is provided, user is trying to pick a card (join a game)
+    if (seed) {
+      if (db.data.users[userKey].balance < 10) {
+        socket.emit('blocked', "❌ You need at least 10 balance to join the game.");
+        return;
+      }
+      db.data.users[userKey].balance -= 10;
+      await db.write();
+      balanceMap[socket.id] = db.data.users[userKey].balance;
+      socket.emit('balanceUpdate', balanceMap[socket.id]);
+      if (Object.values(playerDevices).includes(deviceId)) {
+        socket.emit('blocked', "You are already playing from this device.");
+        return;
+      }
+      if (Object.values(players).some(p => p.username === username)) {
+        socket.emit('blocked', "You already picked a card.");
+        return;
+      }
+      if (lockedSeeds.includes(seed)) {
+        socket.emit('blocked', "Card already picked by another player.");
+        return;
+      }
+      playerUserKeys[socket.id] = `${username}_${id}`;
+      playerDevices[socket.id] = deviceId;
+      players[socket.id] = { username, id, seed, deviceId };
+      lockedSeeds.push(seed);
+      currentCards[socket.id] = generateCard(seed);
       io.emit('playerCount', Object.keys(players).length);
-      return;
-    }
-    db.data.users[userKey].balance -= 10;
-    await db.write();
-
-    balanceMap[socket.id] = db.data.users[userKey].balance;
-    socket.emit('balanceUpdate', balanceMap[socket.id]);
-    socket.emit('welcomeGift', isNew);
-    io.emit('playerCount', Object.keys(players).length);
-    io.emit('lockedSeeds', lockedSeeds);
-
-    if (
-      Object.keys(players).length >= 2 &&
-      !countdownInterval &&
-      !gameStarted
-    ) {
-      startCountdown();
+      io.emit('lockedSeeds', lockedSeeds);
+      emitUserListToAdmins();
+      if (
+        Object.keys(players).length >= 2 &&
+        !countdownInterval &&
+        !gameStarted
+      ) {
+        startCountdown();
+      }
+    } else {
+      balanceMap[socket.id] = db.data.users[userKey].balance;
+      socket.emit('balanceUpdate', balanceMap[socket.id]);
+      io.emit('lockedSeeds', lockedSeeds);
+      emitUserListToAdmins();
     }
   });
 
@@ -241,6 +249,7 @@ io.on('connection', (socket) => {
     if (userKey) {
       db.data.users[userKey].balance = newBalance;
       await db.write();
+      emitUserListToAdmins();
     }
   });
 
@@ -267,6 +276,7 @@ io.on('connection', (socket) => {
 
       db.data.users[userKey].balance += winPoint;
       await db.write();
+      emitUserListToAdmins();
 
       balanceMap[socket.id] = db.data.users[userKey].balance;
       socket.emit('balanceUpdate', balanceMap[socket.id]);
@@ -300,6 +310,7 @@ io.on('connection', (socket) => {
       io.emit('lockedSeeds', lockedSeeds);
     }
     io.emit('playerCount', Object.keys(players).length);
+    emitUserListToAdmins();
     if (Object.keys(players).length < 2) {
       stopCountdown();
     }
@@ -316,6 +327,7 @@ io.on('connection', (socket) => {
       io.emit('lockedSeeds', lockedSeeds);
     }
     io.emit('playerCount', Object.keys(players).length);
+    emitUserListToAdmins();
     if (Object.keys(players).length < 2) {
       stopCountdown();
     }
