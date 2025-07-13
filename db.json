@@ -1,4 +1,24 @@
 {
-  "users": {},
-  "devices": {}
+  "users": {
+    "abc123xyz": {
+      "username": "Alice",
+      "balance": 10,
+      "deviceId": "device-001"
+    },
+    "39d86ca4041129a2acc6faa99034d426": {
+      "username": "besuking",
+      "balance": 0,
+      "deviceId": "dev-5o82p1w39571752419039169"
+    },
+    "33c7835ed50f16ef8ee4aadf464c4bcb": {
+      "username": "Besyhvj",
+      "balance": 0,
+      "deviceId": "dev-ktbmjdw5atc1752419231301"
+    }
+  },
+  "devices": {
+    "device-001": "abc123xyz",
+    "dev-5o82p1w39571752419039169": "39d86ca4041129a2acc6faa99034d426",
+    "dev-ktbmjdw5atc1752419231301": "33c7835ed50f16ef8ee4aadf464c4bcb"
+  }
 }
