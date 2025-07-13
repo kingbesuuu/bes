@@ -1,3 +1,4 @@
+// server.js
 import express from 'express';
 import http from 'http';
 import { Server } from 'socket.io';
@@ -15,7 +16,7 @@ app.use(express.json());
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: "*", // Adjust in production for security
+    origin: "*",
     methods: ["GET", "POST"]
   }
 });
@@ -29,16 +30,15 @@ await db.read();
 db.data ||= { users: {}, devices: {} };
 await db.write();
 
-// Serve static files (including admin.html in /public)
 app.use(express.static(join(__dirname, 'public')));
+
+// Serve SPA fallback if needed
 app.get('*', (req, res) => {
-  res.sendFile(join(__dirname, 'public', 'index.html'));
+  res.sendFile(join(__dirname, 'public', 'admin.html'));
 });
 
-// Admin password — change to strong secret or use env var in production
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'YourStrongAdminPassword!';
 
-// Helper to get all users with keys
 function getAllUsers() {
   return Object.entries(db.data.users).map(([userKey, u]) => ({
     userKey,
@@ -48,20 +48,16 @@ function getAllUsers() {
   }));
 }
 
-// Emit updated user list to all connected admins
 async function emitUserListToAdmins() {
   await db.read();
   adminIo.emit('userList', getAllUsers());
 }
 
-// Admin Socket.IO namespace
 const adminIo = io.of('/admin');
 adminIo.on('connection', (socket) => {
   console.log('Admin connected:', socket.id);
   emitUserListToAdmins();
 });
-
-// Admin REST API endpoints with adminSecret protection
 
 app.get('/admin/users', async (req, res) => {
   const { adminSecret } = req.query;
@@ -129,9 +125,7 @@ app.post('/admin/delete-user', async (req, res) => {
   }
 });
 
-// --- Game logic and Socket.IO player namespace (unchanged) ---
-// [Include your existing game logic and player socket.io handlers here]
-// For brevity, omitted here but keep your full game logic as before.
+// You can add your game logic handlers under here...
 
 server.listen(PORT, () => {
   console.log(`✅ Bingo server running at http://localhost:${PORT}`);
