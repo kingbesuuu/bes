@@ -1,132 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Admin Panel - User Management</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    table { border-collapse: collapse; width: 100%; margin-top: 10px; }
+    th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+    th { background-color: #f4f4f4; }
+    input.balance-input { width: 80px; }
+    button { margin-left: 5px; }
+    #login { margin-bottom: 20px; }
+  </style>
+</head>
+<body>
+  <h1>Admin Panel - User Management</h1>
 
-import express from 'express';
-import http from 'http';
-import { Server } from 'socket.io';
-import cors from 'cors';
-import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { Low } from 'lowdb';
-import { JSONFile } from 'lowdb/node';
+  <div id="login">
+    <label>Admin Secret: <input type="password" id="adminSecret" /></label>
+    <button id="loginBtn">Login</button>
+    <span id="loginMsg" style="color: red; margin-left: 10px;"></span>
+  </div>
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const app = express();
-app.use(cors());
-app.use(express.json());
+  <div id="adminContent" style="display:none;">
+    <table id="usersTable">
+      <thead>
+        <tr>
+          <th>User Key</th>
+          <th>Username</th>
+          <th>Balance</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
 
-const server = http.createServer(app);
-const io = new Server(server, {
-  cors: {
-    origin: "*",
-    methods: ["GET", "POST"]
-  }
-});
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    let adminSecret = '';
+    let socket;
 
-const PORT = process.env.PORT || 3000;
-const dbFile = join(__dirname, 'db.json');
-const adapter = new JSONFile(dbFile);
-const db = new Low(adapter);
+    const loginBtn = document.getElementById('loginBtn');
+    const adminSecretInput = document.getElementById('adminSecret');
+    const loginMsg = document.getElementById('loginMsg');
+    const adminContent = document.getElementById('adminContent');
+    const usersTableBody = document.querySelector('#usersTable tbody');
 
-await db.read();
-db.data ||= { users: {}, devices: {} };
-await db.write();
+    loginBtn.onclick = async () => {
+      adminSecret = adminSecretInput.value.trim();
+      if (!adminSecret) {
+        loginMsg.textContent = 'Please enter admin secret.';
+        return;
+      }
+      loginMsg.textContent = '';
 
-app.use(express.static(join(__dirname, 'public')));
+      try {
+        const res = await fetch(`/admin/users?adminSecret=${encodeURIComponent(adminSecret)}`);
+        const data = await res.json();
+        if (!data.success) {
+          loginMsg.textContent = data.error || 'Invalid admin secret.';
+          return;
+        }
+        adminContent.style.display = 'block';
+        document.getElementById('login').style.display = 'none';
+        renderUsers(data.users);
+        setupSocket();
+      } catch (err) {
+        loginMsg.textContent = 'Failed to connect to server.';
+        console.error(err);
+      }
+    };
 
-// Serve SPA fallback if needed
-app.get('*', (req, res) => {
-  res.sendFile(join(__dirname, 'public', 'admin.html'));
-});
+    function renderUsers(users) {
+      usersTableBody.innerHTML = '';
+      users.forEach(({ userKey, username, balance }) => {
+        const tr = document.createElement('tr');
 
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'YourStrongAdminPassword!';
+        const keyTd = document.createElement('td');
+        keyTd.textContent = userKey;
 
-function getAllUsers() {
-  return Object.entries(db.data.users).map(([userKey, u]) => ({
-    userKey,
-    username: u.username,
-    balance: u.balance,
-    deviceId: u.deviceId
-  }));
-}
+        const usernameTd = document.createElement('td');
+        usernameTd.textContent = username;
 
-async function emitUserListToAdmins() {
-  await db.read();
-  adminIo.emit('userList', getAllUsers());
-}
+        const balanceTd = document.createElement('td');
+        const balanceInput = document.createElement('input');
+        balanceInput.type = 'number';
+        balanceInput.min = '0';
+        balanceInput.value = balance;
+        balanceInput.className = 'balance-input';
+        balanceTd.appendChild(balanceInput);
 
-const adminIo = io.of('/admin');
-adminIo.on('connection', (socket) => {
-  console.log('Admin connected:', socket.id);
-  emitUserListToAdmins();
-});
+        const actionsTd = document.createElement('td');
+        const updateBtn = document.createElement('button');
+        updateBtn.textContent = 'Update';
+        updateBtn.onclick = () => updateBalance(userKey, balanceInput.value);
+        const deleteBtn = document.createElement('button');
+        deleteBtn.textContent = 'Delete';
+        deleteBtn.onclick = () => deleteUser(userKey);
+        actionsTd.appendChild(updateBtn);
+        actionsTd.appendChild(deleteBtn);
 
-app.get('/admin/users', async (req, res) => {
-  const { adminSecret } = req.query;
-  if (adminSecret !== ADMIN_PASSWORD) {
-    return res.json({ success: false, error: 'Unauthorized' });
-  }
-  await db.read();
-  return res.json({ success: true, users: getAllUsers() });
-});
+        tr.appendChild(keyTd);
+        tr.appendChild(usernameTd);
+        tr.appendChild(balanceTd);
+        tr.appendChild(actionsTd);
 
-app.get('/admin/get-balance', async (req, res) => {
-  const { userKey, adminSecret } = req.query;
-  if (adminSecret !== ADMIN_PASSWORD) {
-    return res.json({ success: false, error: 'Unauthorized' });
-  }
-  await db.read();
-  const user = db.data.users[userKey];
-  if (!user) return res.json({ success: false, error: 'User not found' });
-  return res.json({ success: true, userKey, username: user.username, balance: user.balance });
-});
+        usersTableBody.appendChild(tr);
+      });
+    }
 
-app.post('/admin/update-balance', async (req, res) => {
-  const { userKey, balance, adminSecret } = req.body;
-  if (adminSecret !== ADMIN_PASSWORD) {
-    return res.json({ success: false, error: 'Unauthorized' });
-  }
-  await db.read();
-  if (!db.data.users[userKey]) return res.json({ success: false, error: 'User not found' });
+    async function updateBalance(userKey, balance) {
+      const balNum = Number(balance);
+      if (isNaN(balNum) || balNum < 0) {
+        alert('Invalid balance value');
+        return;
+      }
+      try {
+        const res = await fetch('/admin/update-balance', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userKey, balance: balNum, adminSecret })
+        });
+        const data = await res.json();
+        if (!data.success) {
+          alert('Failed to update balance: ' + data.error);
+        }
+      } catch {
+        alert('Network error updating balance');
+      }
+    }
 
-  const newBalance = Number(balance);
-  if (isNaN(newBalance) || newBalance < 0) {
-    return res.json({ success: false, error: 'Invalid balance value' });
-  }
+    async function deleteUser(userKey) {
+      if (!confirm('Are you sure you want to delete this user?')) return;
+      try {
+        const res = await fetch('/admin/delete-user', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userKey, adminSecret })
+        });
+        const data = await res.json();
+        if (!data.success) {
+          alert('Failed to delete user: ' + data.error);
+        }
+      } catch {
+        alert('Network error deleting user');
+      }
+    }
 
-  db.data.users[userKey].balance = newBalance;
-  try {
-    await db.write();
-    await emitUserListToAdmins();
-    return res.json({ success: true });
-  } catch {
-    return res.json({ success: false, error: "Failed to write to database." });
-  }
-});
-
-app.post('/admin/delete-user', async (req, res) => {
-  const { userKey, adminSecret } = req.body;
-  if (adminSecret !== ADMIN_PASSWORD) {
-    return res.json({ success: false, error: 'Unauthorized' });
-  }
-  await db.read();
-  if (!db.data.users[userKey]) return res.json({ success: false, error: 'User not found' });
-
-  const deviceId = db.data.users[userKey].deviceId;
-  if (deviceId && db.data.devices[deviceId] === userKey) {
-    delete db.data.devices[deviceId];
-  }
-  delete db.data.users[userKey];
-
-  try {
-    await db.write();
-    await emitUserListToAdmins();
-    return res.json({ success: true });
-  } catch {
-    return res.json({ success: false, error: "Failed to write to database." });
-  }
-});
-
-// You can add your game logic handlers under here...
-
-server.listen(PORT, () => {
-  console.log(`✅ Bingo server running at http://localhost:${PORT}`);
-});
+    function setupSocket() {
+      socket = io('/admin');
+      socket.on('userList', (users) => {
+        renderUsers(users);
+      });
+      socket.on('connect_error', (err) => {
+        loginMsg.textContent = 'Socket connection error: ' + err.message;
+      });
+    }
+  </script>
+</body>
+</html>
