@@ -56,7 +56,6 @@
       loginMsg.textContent = '';
 
       try {
-        // Test adminSecret by fetching users
         const res = await fetch(`/admin/users?adminSecret=${encodeURIComponent(adminSecret)}`);
         const data = await res.json();
         if (!data.success) {
@@ -152,6 +151,9 @@
       socket = io('/admin');
       socket.on('userList', (users) => {
         renderUsers(users);
+      });
+      socket.on('connect_error', (err) => {
+        loginMsg.textContent = 'Socket connection error: ' + err.message;
       });
     }
   </script>
