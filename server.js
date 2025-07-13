@@ -56,6 +56,23 @@ async function emitUserListToAdmins() {
   adminIo.emit('userList', getAllUsers());
 }
 
+// --- Real-Time User Socket Tracking ---
+const userSockets = {}; // deviceId -> socket.id
+
+io.on('connection', (socket) => {
+  socket.on('identify', ({ deviceId }) => {
+    if (deviceId) {
+      userSockets[deviceId] = socket.id;
+      // Optionally: Remove deviceId from userSockets on disconnect
+      socket.on('disconnect', () => {
+        if (userSockets[deviceId] === socket.id) {
+          delete userSockets[deviceId];
+        }
+      });
+    }
+  });
+});
+
 // Admin namespace socket.io
 const adminIo = io.of('/admin');
 adminIo.on('connection', (socket) => {
@@ -135,6 +152,13 @@ app.post('/admin/update-balance', async (req, res) => {
   user.balance = newBalance;
   await db.write();
   await emitUserListToAdmins();
+
+  // --- Real-Time Balance Update to User ---
+  const socketId = userSockets[user.deviceId];
+  if (socketId) {
+    io.to(socketId).emit('balanceUpdate', newBalance);
+  }
+
   res.json({ success: true });
 });
 
