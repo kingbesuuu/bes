@@ -29,88 +29,87 @@ app.get('*', (req, res) => {
   res.sendFile(join(__dirname, 'public', 'index.html'));
 });
 
-// --- Admin endpoints ---
-const ADMIN_PASSWORD = 'your_admin_password'; // CHANGE THIS!
+// --- Admin Configuration ---
+const ADMIN_PASSWORD = 'Admin'; // CHANGE THIS!
 
-// Helper to get all users in array form
+// --- Helper Functions ---
 function getAllUsers() {
-  return Object.values(db.data.users).map(u => ({
+  return Object.entries(db.data.users).map(([userKey, u]) => ({
+    userKey,
     username: u.username,
     balance: u.balance,
     deviceId: u.deviceId
   }));
 }
 
-// Make emitUserListToAdmins async and await db read
 async function emitUserListToAdmins() {
   await db.read();
   adminIo.emit('userList', getAllUsers());
 }
 
-// GET user balance by username
-app.get('/admin/get-balance', async (req, res) => {
-  const { username, adminSecret } = req.query;
-  if (adminSecret !== ADMIN_PASSWORD) {
-    console.log('Admin get-balance unauthorized attempt');
-    return res.json({ success: false, error: 'Unauthorized' });
-  }
+// --- Admin Socket.IO Namespace ---
+const adminIo = io.of('/admin');
 
-  await db.read();
-  const user = Object.values(db.data.users).find(
-    u => u.username && u.username.toLowerCase() === (username || '').toLowerCase()
-  );
-  if (!user) {
-    console.log(`Admin get-balance: User not found: ${username}`);
-    return res.json({ success: false, error: 'User not found' });
-  }
-  return res.json({ success: true, balance: user.balance });
+adminIo.on('connection', (socket) => {
+  emitUserListToAdmins();
 });
 
-// POST update user balance
-app.post('/admin/update-balance', async (req, res) => {
-  const { username, balance, adminSecret } = req.body;
+// --- Admin REST API Endpoints ---
+
+// Get all users
+app.get('/admin/users', async (req, res) => {
+  const { adminSecret } = req.query;
   if (adminSecret !== ADMIN_PASSWORD) {
-    console.log('Admin update-balance unauthorized attempt');
     return res.json({ success: false, error: 'Unauthorized' });
   }
-
   await db.read();
-  const userKey = Object.keys(db.data.users).find(
-    k => db.data.users[k].username && db.data.users[k].username.toLowerCase() === (username || '').toLowerCase()
-  );
-  if (!userKey) {
-    console.log(`Admin update-balance: User not found: ${username}`);
-    return res.json({ success: false, error: 'User not found' });
+  return res.json({ success: true, users: getAllUsers() });
+});
+
+// Get user balance by userKey
+app.get('/admin/get-balance', async (req, res) => {
+  const { userKey, adminSecret } = req.query;
+  if (adminSecret !== ADMIN_PASSWORD) {
+    return res.json({ success: false, error: 'Unauthorized' });
+  }
+  await db.read();
+  const user = db.data.users[userKey];
+  if (!user) return res.json({ success: false, error: 'User not found' });
+  return res.json({ success: true, userKey, username: user.username, balance: user.balance });
+});
+
+// Update user balance by userKey
+app.post('/admin/update-balance', async (req, res) => {
+  const { userKey, balance, adminSecret } = req.body;
+  if (adminSecret !== ADMIN_PASSWORD) {
+    return res.json({ success: false, error: 'Unauthorized' });
+  }
+  await db.read();
+  if (!db.data.users[userKey]) return res.json({ success: false, error: 'User not found' });
+
+  const newBalance = Number(balance);
+  if (isNaN(newBalance) || newBalance < 0) {
+    return res.json({ success: false, error: 'Invalid balance value' });
   }
 
-  db.data.users[userKey].balance = Math.max(0, Number(balance));
+  db.data.users[userKey].balance = newBalance;
   try {
     await db.write();
     await emitUserListToAdmins();
-    console.log(`Admin updated balance for ${username} to ${balance}`);
     return res.json({ success: true });
   } catch (err) {
-    console.error('Failed to write to database:', err);
     return res.json({ success: false, error: "Failed to write to database." });
   }
 });
 
-// POST delete user by username
+// Delete user by userKey
 app.post('/admin/delete-user', async (req, res) => {
-  const { username, adminSecret } = req.body;
+  const { userKey, adminSecret } = req.body;
   if (adminSecret !== ADMIN_PASSWORD) {
-    console.log('Admin delete-user unauthorized attempt');
     return res.json({ success: false, error: 'Unauthorized' });
   }
-
   await db.read();
-  const userKey = Object.keys(db.data.users).find(
-    k => db.data.users[k].username && db.data.users[k].username.toLowerCase() === (username || '').toLowerCase()
-  );
-  if (!userKey) {
-    console.log(`Admin delete-user: User not found: ${username}`);
-    return res.json({ success: false, error: 'User not found' });
-  }
+  if (!db.data.users[userKey]) return res.json({ success: false, error: 'User not found' });
 
   const deviceId = db.data.users[userKey].deviceId;
   if (deviceId && db.data.devices[deviceId] === userKey) {
@@ -121,33 +120,14 @@ app.post('/admin/delete-user', async (req, res) => {
   try {
     await db.write();
     await emitUserListToAdmins();
-    console.log(`Admin deleted user: ${username}`);
     return res.json({ success: true });
   } catch (err) {
-    console.error('Failed to write to database:', err);
     return res.json({ success: false, error: "Failed to write to database." });
   }
 });
 
-// Optional: GET all users list for admin (REST)
-app.get('/admin/users', async (req, res) => {
-  const { adminSecret } = req.query;
-  if (adminSecret !== ADMIN_PASSWORD) {
-    return res.json({ success: false, error: 'Unauthorized' });
-  }
-  await db.read();
-  const users = getAllUsers();
-  return res.json({ success: true, users });
-});
+// === Game State and Logic ===
 
-// --- Real-time admin user list ---
-const adminIo = io.of('/admin');
-
-adminIo.on('connection', (socket) => {
-  emitUserListToAdmins();
-});
-
-// === Game State ===
 let players = {};
 let calledNumbers = new Set();
 let lockedSeeds = [];
@@ -266,14 +246,12 @@ function resetGame() {
 
 io.on('connection', (socket) => {
   socket.on('register', async ({ username, id, seed, deviceId }) => {
-    // --- Validation ---
     if (!/^[a-zA-Z0-9_]{5,32}$/.test(username) || !deviceId) {
       socket.emit('blocked', "Invalid username or device.");
       return;
     }
 
     let userKey = `${username}_${id}`;
-    // Prevent duplicate device registration
     if (db.data.devices[deviceId] && db.data.devices[deviceId] !== userKey) {
       socket.emit('blocked', "This device is already registered to another user.");
       return;
@@ -284,7 +262,7 @@ io.on('connection', (socket) => {
       db.data.devices[deviceId] = userKey;
       try {
         await db.write();
-      } catch (err) {
+      } catch {
         socket.emit('blocked', "Failed to write to database.");
         return;
       }
@@ -292,12 +270,12 @@ io.on('connection', (socket) => {
       db.data.devices[deviceId] = userKey;
       try {
         await db.write();
-      } catch (err) {
+      } catch {
         socket.emit('blocked', "Failed to write to database.");
         return;
       }
     }
-    // If seed is provided, user is trying to pick a card (join a game)
+
     if (seed) {
       if (db.data.users[userKey].balance < 10) {
         socket.emit('blocked', "❌ You need at least 10 balance to join the game.");
@@ -307,7 +285,7 @@ io.on('connection', (socket) => {
       db.data.users[userKey].balance = Math.max(0, db.data.users[userKey].balance);
       try {
         await db.write();
-      } catch (err) {
+      } catch {
         socket.emit('blocked', "Failed to write to database.");
         return;
       }
@@ -325,7 +303,7 @@ io.on('connection', (socket) => {
         socket.emit('blocked', "Card already picked by another player.");
         return;
       }
-      playerUserKeys[socket.id] = `${username}_${id}`;
+      playerUserKeys[socket.id] = userKey;
       playerDevices[socket.id] = deviceId;
       players[socket.id] = { username, id, seed, deviceId };
       lockedSeeds.push(seed);
@@ -355,9 +333,7 @@ io.on('connection', (socket) => {
       try {
         await db.write();
         await emitUserListToAdmins();
-      } catch (err) {
-        // Ignore for now
-      }
+      } catch {}
     }
   });
 
@@ -386,7 +362,7 @@ io.on('connection', (socket) => {
       try {
         await db.write();
         await emitUserListToAdmins();
-      } catch (err) {}
+      } catch {}
 
       balanceMap[socket.id] = db.data.users[userKey].balance;
       socket.emit('balanceUpdate', balanceMap[socket.id]);

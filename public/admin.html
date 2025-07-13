@@ -2,123 +2,158 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Admin - Update Player Balance</title>
-  <script src="/socket.io/socket.io.js"></script>
+  <title>Admin Panel - User Management</title>
   <style>
-    body { font-family: Arial, sans-serif; margin: 40px; background: #f9f9f9; }
-    .hidden { display: none; }
-    .panel { background: #fff; border-radius: 10px; padding: 30px 24px; box-shadow: 0 2px 12px #0002; max-width: 400px; margin: 40px auto; }
-    label { display: block; margin-top: 16px; }
-    input, button { padding: 8px; margin-top: 4px; }
-    #result { margin-top: 20px; }
-    .success { color: green; }
-    .error { color: red; }
-    .row { display: flex; gap: 10px; align-items: center; }
-    .row input { flex: 1; }
-    table { margin: 30px auto 0 auto; border-collapse: collapse; width: 90%; }
-    th, td { border: 1px solid #ccc; padding: 6px 10px; }
-    th { background: #e6f7ff; }
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    table { border-collapse: collapse; width: 100%; margin-top: 10px; }
+    th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+    th { background-color: #f4f4f4; }
+    input.balance-input { width: 80px; }
+    button { margin-left: 5px; }
+    #login { margin-bottom: 20px; }
   </style>
 </head>
 <body>
-  <div class="panel" id="loginPanel">
-    <h2>Admin Login</h2>
-    <label>
-      Admin Password:
-      <input type="password" id="adminPassword" required>
-    </label>
+  <h1>Admin Panel - User Management</h1>
+
+  <div id="login">
+    <label>Admin Secret: <input type="password" id="adminSecret" /></label>
     <button id="loginBtn">Login</button>
-    <div id="loginResult"></div>
+    <span id="loginMsg" style="color: red; margin-left: 10px;"></span>
   </div>
-  <div class="panel hidden" id="adminPanel">
-    <h2>Update Player Balance</h2>
-    <div class="row">
-      <input type="text" id="username" placeholder="Player Username" required>
-      <button id="checkBtn">Check</button>
-    </div>
-    <div id="currentBalance"></div>
-    <div id="updateSection" class="hidden">
-      <label>
-        New Balance:
-        <input type="number" id="balance" required>
-      </label>
-      <button id="confirmBtn">Confirm</button>
-    </div>
-    <div id="result"></div>
-    <h3 style="margin-top:30px;">All Registered Users (Real-Time)</h3>
-    <table id="userTable">
+
+  <div id="adminContent" style="display:none;">
+    <table id="usersTable">
       <thead>
         <tr>
+          <th>User Key</th>
           <th>Username</th>
           <th>Balance</th>
-          <th>Device ID</th>
+          <th>Actions</th>
         </tr>
       </thead>
       <tbody></tbody>
     </table>
   </div>
+
+  <script src="/socket.io/socket.io.js"></script>
   <script>
-    let adminSecret = "";
-    let checkedUser = "";
+    let adminSecret = '';
+    let socket;
 
-    document.getElementById('loginBtn').onclick = async function() {
-      adminSecret = document.getElementById('adminPassword').value;
-      if(adminSecret === "your_admin_password") {
-        document.getElementById('loginPanel').classList.add('hidden');
-        document.getElementById('adminPanel').classList.remove('hidden');
-      } else {
-        document.getElementById('loginResult').textContent = "Wrong password!";
+    const loginBtn = document.getElementById('loginBtn');
+    const adminSecretInput = document.getElementById('adminSecret');
+    const loginMsg = document.getElementById('loginMsg');
+    const adminContent = document.getElementById('adminContent');
+    const usersTableBody = document.querySelector('#usersTable tbody');
+
+    loginBtn.onclick = async () => {
+      adminSecret = adminSecretInput.value.trim();
+      if (!adminSecret) {
+        loginMsg.textContent = 'Please enter admin secret.';
+        return;
+      }
+      loginMsg.textContent = '';
+
+      try {
+        // Test adminSecret by fetching users
+        const res = await fetch(`/admin/users?adminSecret=${encodeURIComponent(adminSecret)}`);
+        const data = await res.json();
+        if (!data.success) {
+          loginMsg.textContent = 'Invalid admin secret.';
+          return;
+        }
+        adminContent.style.display = 'block';
+        document.getElementById('login').style.display = 'none';
+        renderUsers(data.users);
+        setupSocket();
+      } catch (err) {
+        loginMsg.textContent = 'Failed to connect to server.';
       }
     };
 
-    document.getElementById('checkBtn').onclick = async function() {
-      const username = document.getElementById('username').value.trim();
-      document.getElementById('result').textContent = "";
-      document.getElementById('updateSection').classList.add('hidden');
-      if (!username) return;
-      const res = await fetch(`/admin/get-balance?username=${encodeURIComponent(username)}&adminSecret=${encodeURIComponent(adminSecret)}`);
-      const data = await res.json();
-      if(data.success) {
-        checkedUser = username;
-        document.getElementById('currentBalance').textContent = `Current Balance: ${data.balance}`;
-        document.getElementById('updateSection').classList.remove('hidden');
-      } else {
-        checkedUser = "";
-        document.getElementById('currentBalance').textContent = "";
-        document.getElementById('result').textContent = data.error || "User not found.";
-      }
-    };
-
-    document.getElementById('confirmBtn').onclick = async function() {
-      const balance = Number(document.getElementById('balance').value);
-      if (!checkedUser || isNaN(balance)) return;
-      const res = await fetch('/admin/update-balance', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: checkedUser, balance, adminSecret })
-      });
-      const data = await res.json();
-      if (data.success) {
-        document.getElementById('result').textContent = `✅ Updated ${checkedUser} balance to ${balance}`;
-        document.getElementById('result').className = "success";
-        document.getElementById('currentBalance').textContent = `Current Balance: ${balance}`;
-      } else {
-        document.getElementById('result').textContent = `❌ Error: ${data.error || 'Unknown error'}`;
-        document.getElementById('result').className = "error";
-      }
-    };
-
-    // Real-time user list
-    const adminSocket = io('/admin');
-    adminSocket.on('userList', function(users) {
-      const tbody = document.querySelector('#userTable tbody');
-      tbody.innerHTML = '';
-      users.forEach(u => {
+    function renderUsers(users) {
+      usersTableBody.innerHTML = '';
+      users.forEach(({ userKey, username, balance }) => {
         const tr = document.createElement('tr');
-        tr.innerHTML = `<td>${u.username}</td><td>${u.balance}</td><td>${u.deviceId}</td>`;
-        tbody.appendChild(tr);
+
+        const keyTd = document.createElement('td');
+        keyTd.textContent = userKey;
+
+        const usernameTd = document.createElement('td');
+        usernameTd.textContent = username;
+
+        const balanceTd = document.createElement('td');
+        const balanceInput = document.createElement('input');
+        balanceInput.type = 'number';
+        balanceInput.min = '0';
+        balanceInput.value = balance;
+        balanceInput.className = 'balance-input';
+        balanceTd.appendChild(balanceInput);
+
+        const actionsTd = document.createElement('td');
+        const updateBtn = document.createElement('button');
+        updateBtn.textContent = 'Update';
+        updateBtn.onclick = () => updateBalance(userKey, balanceInput.value);
+        const deleteBtn = document.createElement('button');
+        deleteBtn.textContent = 'Delete';
+        deleteBtn.onclick = () => deleteUser(userKey);
+        actionsTd.appendChild(updateBtn);
+        actionsTd.appendChild(deleteBtn);
+
+        tr.appendChild(keyTd);
+        tr.appendChild(usernameTd);
+        tr.appendChild(balanceTd);
+        tr.appendChild(actionsTd);
+
+        usersTableBody.appendChild(tr);
       });
-    });
+    }
+
+    async function updateBalance(userKey, balance) {
+      const balNum = Number(balance);
+      if (isNaN(balNum) || balNum < 0) {
+        alert('Invalid balance value');
+        return;
+      }
+      try {
+        const res = await fetch('/admin/update-balance', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userKey, balance: balNum, adminSecret })
+        });
+        const data = await res.json();
+        if (!data.success) {
+          alert('Failed to update balance: ' + data.error);
+        }
+      } catch {
+        alert('Network error updating balance');
+      }
+    }
+
+    async function deleteUser(userKey) {
+      if (!confirm('Are you sure you want to delete this user?')) return;
+      try {
+        const res = await fetch('/admin/delete-user', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userKey, adminSecret })
+        });
+        const data = await res.json();
+        if (!data.success) {
+          alert('Failed to delete user: ' + data.error);
+        }
+      } catch {
+        alert('Network error deleting user');
+      }
+    }
+
+    function setupSocket() {
+      socket = io('/admin');
+      socket.on('userList', (users) => {
+        renderUsers(users);
+      });
+    }
   </script>
 </body>
 </html>
